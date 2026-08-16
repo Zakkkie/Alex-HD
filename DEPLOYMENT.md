@@ -979,6 +979,51 @@ sudo ufw status verbose
 - `VITE_TORRSERVER_URL` = `https://IP_ВАШЕГО_VPS/torrserver` *(или `https://tv.yourdomain.com/torrserver`)*
 - `VITE_API_URL` = `https://IP_ВАШЕГО_VPS` *(или `https://tv.yourdomain.com`)*
 
+---
+
+### 8.1.1. Пошаговая инструкция для Vercel.com (Если выполнены Этапы 1–5 и 7, а Этап 6 ещё не делался)
+
+Если вы уже настроили VPS сервер (Этапы 1–5 и 7), но еще **не создавали Nginx конфиг и SSL сертификат (Этап 6)**, вот точные шаги, что делать в Vercel и на сервере:
+
+#### Важное примечание про связь Vercel и VPS без Nginx (Этап 6):
+1. Ваш сайт на Vercel работает по защищенному протоколу **`https://alex-hd.vercel.app` (HTTPS)**.
+2. В Этапе 7 брандмауэр UFW на сервере закрывает прямые порты `3000` и `8090` для безопасности снаружи, оставляя открытыми веб-порты `80` (HTTP) и `443` (HTTPS).
+3. **Почему вам стоит выполнить Этап 6 (Nginx + SSL)**: Nginx принимает защищенные HTTPS-запросы от Vercel по порту `443` и мгновенно передает их внутри вашего сервера на `127.0.0.1:8090` (TorrServer) и `127.0.0.1:3000` (Backend API). Без Этапа 6 современные браузеры и Smart TV заблокируют запросы к `http://IP:8090` из-за защиты **Mixed Content** (запрет вызова HTTP из HTTPS страницы).
+
+---
+
+#### Пошаговые действия на сайте Vercel.com:
+
+1. **Шаг 1. Импорт проекта в Vercel**:
+   - Откройте [Vercel Dashboard](https://vercel.com/dashboard) и войдите в свой аккаунт.
+   - Нажмите синюю кнопку **"Add New..."** -> **"Project"**.
+   - Выберите ваш GitHub репозиторий с проектом **Alex HD** и нажмите **"Import"**.
+
+2. **Шаг 2. Проверка настроек сборки (Build & Development Settings)**:
+   - **Framework Preset**: Выберите **Vite**.
+   - **Root Directory**: `./` (оставьте по умолчанию).
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+   - **Install Command**: `npm install`
+
+3. **Шаг 3. Заполнение переменных окружения (Environment Variables)**:
+   - Разверните блок **Environment Variables**.
+   - Добавьте первую переменную:
+     - **Key**: `VITE_TORRSERVER_URL`
+     - **Value**: `https://IP_ВАШЕГО_VPS/torrserver` *(если собираетесь сделать Этап 6)* **ИЛИ** `http://IP_ВАШЕГО_VPS:8090` *(если тестируете напрямую, при этом откройте порт на сервере: `sudo ufw allow 8090/tcp`)*
+   - Добавьте вторую переменную:
+     - **Key**: `VITE_API_URL`
+     - **Value**: `https://IP_ВАШЕГО_VPS` *(если собираетесь сделать Этап 6)* **ИЛИ** `http://IP_ВАШЕГО_VPS:3000` *(при прямом тесте: `sudo ufw allow 3000/tcp`)*
+
+4. **Шаг 4. Нажмите "Deploy"**:
+   - Нажмите кнопку **Deploy**. Vercel автоматически соберет проект Vite и выдаст рабочий домен `https://alex-hd.vercel.app/`.
+
+5. **Шаг 5. Выполните Этап 6 на VPS за 2 минуты (Рекомендуется для 100% работы на Smart TV)**:
+   - Подключитесь к VPS в терминале VS Code и скопируйте команды из **Этапа 6** (установка Nginx и получение бесплатного SSL Let's Encrypt через `certbot`).
+   - Это свяжет Vercel и ваш VPS сервер без блокировок и смешанного контента!
+
+---
+
 #### 3. Команда сборки Vite (Build command):
 В настройках проекта Vercel укажите:
 - **Build Command**: `npm run build`
