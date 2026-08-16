@@ -26,17 +26,22 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
       try { return JSON.parse(saved); } catch (e) {}
     }
     return {
-      id: user.id || 'usr-admin-01',
-      username: user.username || 'alex_admin',
-      displayName: user.displayName || 'Алексей (Администратор)',
-      email: user.email || 'admin@smarttv.com',
-      role: user.role || 'admin',
-      plan: user.plan || '4k',
-      subscription_expires_at: user.subscription_expires_at || new Date(Date.now() + 365 * 86400000).toISOString(),
-      connected_devices_count: 3,
-      isSubscribed: true
+      id: user.id || 'usr-user-01',
+      username: user.username || 'alex_viewer',
+      displayName: user.displayName || 'Пользователь Alex HD',
+      email: user.email || 'user@alexhd.app',
+      role: user.role || 'user',
+      plan: user.plan || 'standard',
+      subscription_expires_at: user.subscription_expires_at || null,
+      connected_devices_count: 1,
+      isSubscribed: false
     };
   });
+
+  // Admin Auth Password Modal State
+  const [isAdminAuthModalOpen, setIsAdminAuthModalOpen] = useState<boolean>(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>('');
+  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
 
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
@@ -146,9 +151,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
     }, 1200);
   };
 
-  // Role Switcher for quick testing Admin features
-  const handleSwitchAccountRole = (targetRole: 'admin' | 'user') => {
-    if (targetRole === 'admin') {
+  // Admin Password Verification Handler
+  const handleVerifyAdminPassword = () => {
+    setAdminAuthError(null);
+    if (adminPasswordInput === 'admin123' || adminPasswordInput === 'StrongAlexHdPass2026!' || adminPasswordInput === 'alexhd2026') {
       const adminProfile: UserProfile = {
         id: 'usr-admin-01',
         username: 'alex_admin',
@@ -161,20 +167,30 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
         isSubscribed: true
       };
       setCurrentUser(adminProfile);
+      setIsAdminAuthModalOpen(false);
+      setAdminPasswordInput('');
+      setPaymentSuccessMessage('Авторизация успешна! Права администратора активированы.');
+      setTimeout(() => setPaymentSuccessMessage(null), 5000);
     } else {
-      const userProfile: UserProfile = {
-        id: 'usr-user-04',
-        username: 'dmitry_p',
-        displayName: 'Дмитрий Панов (Пользователь)',
-        email: 'dmitriy.panov@mail.ru',
-        role: 'user',
-        plan: 'standard',
-        subscription_expires_at: null,
-        connected_devices_count: 1,
-        isSubscribed: false
-      };
-      setCurrentUser(userProfile);
+      setAdminAuthError('Неверный пароль администратора');
     }
+  };
+
+  const handleExitAdminMode = () => {
+    const userProfile: UserProfile = {
+      id: 'usr-user-01',
+      username: 'alex_viewer',
+      displayName: 'Пользователь Alex HD',
+      email: 'user@alexhd.app',
+      role: 'user',
+      plan: 'standard',
+      subscription_expires_at: null,
+      connected_devices_count: 1,
+      isSubscribed: false
+    };
+    setCurrentUser(userProfile);
+    setPaymentSuccessMessage('Вы вышли из режима администратора.');
+    setTimeout(() => setPaymentSuccessMessage(null), 4000);
   };
 
   const handleLogout = () => {
@@ -188,6 +204,65 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
 
   return (
     <div className="pb-16 pt-4 text-[#e6e3df] max-w-6xl mx-auto space-y-8 font-sans">
+      {/* -------------------- ADMIN AUTH MODAL -------------------- */}
+      {isAdminAuthModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-[#121110] border border-[#d4b581]/40 rounded-3xl p-8 shadow-2xl space-y-6 relative animate-in fade-in zoom-in-95">
+            <button
+              onClick={() => {
+                setIsAdminAuthModalOpen(false);
+                setAdminPasswordInput('');
+                setAdminAuthError(null);
+              }}
+              className="absolute top-4 right-4 text-[#e6e3df]/40 hover:text-white p-2 rounded-xl transition cursor-pointer"
+            >
+              ✕
+            </button>
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+              <Lock className="w-7 h-7" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="font-serif text-2xl font-bold text-white">Вход для Администратора</h3>
+              <p className="text-xs text-[#e6e3df]/70 font-mono">
+                Для активации прав администратора введите мастер-пароль.
+              </p>
+            </div>
+
+            {adminAuthError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs font-mono text-center">
+                {adminAuthError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#e6e3df]/60 mb-1.5">
+                  Пароль Администратора
+                </label>
+                <input
+                  type="password"
+                  value={adminPasswordInput}
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleVerifyAdminPassword();
+                  }}
+                  placeholder="Введите пароль..."
+                  autoFocus
+                  className="w-full px-4 py-3 bg-black/50 border border-[#e6e3df]/20 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-[#d4b581]"
+                />
+              </div>
+
+              <button
+                onClick={handleVerifyAdminPassword}
+                className="w-full py-3.5 bg-[#d4b581] hover:bg-[#c3a470] text-black font-mono text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-lg cursor-pointer"
+              >
+                Войти в админ-панель
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* -------------------- LOGGED IN VIEW -------------------- */}
       {isLoggedIn && (
         <div className="space-y-8 animate-[fadeIn_0.3s_ease-out]">
@@ -228,31 +303,25 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
               </div>
             </div>
 
-            {/* Switch Demo Role & Actions */}
+            {/* Admin Password Login & Actions */}
             <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex items-center bg-[#171615] border border-[#e6e3df]/15 rounded-xl p-1 font-mono text-xs">
-                <span className="px-2 text-[10px] text-[#e6e3df]/50">Режим:</span>
+              {currentUser.role === 'admin' ? (
                 <button
-                  onClick={() => handleSwitchAccountRole('admin')}
-                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                    currentUser.role === 'admin'
-                      ? 'bg-[#d4b581] text-black shadow-sm'
-                      : 'text-[#e6e3df]/70 hover:text-white'
-                  }`}
+                  onClick={handleExitAdminMode}
+                  className="px-4 py-2 border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 transition rounded-xl font-mono text-xs font-bold uppercase cursor-pointer flex items-center gap-2"
                 >
-                  Администратор
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  Выйти из админки
                 </button>
+              ) : (
                 <button
-                  onClick={() => handleSwitchAccountRole('user')}
-                  className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                    currentUser.role === 'user'
-                      ? 'bg-[#38bdf8] text-black shadow-sm'
-                      : 'text-[#e6e3df]/70 hover:text-white'
-                  }`}
+                  onClick={() => setIsAdminAuthModalOpen(true)}
+                  className="px-4 py-2 border border-[#d4b581]/30 bg-[#d4b581]/10 hover:bg-[#d4b581]/20 text-[#d4b581] transition rounded-xl font-mono text-xs uppercase cursor-pointer flex items-center gap-2"
                 >
-                  Обычный юзер
+                  <Lock className="w-3.5 h-3.5" />
+                  Вход для Администратора
                 </button>
-              </div>
+              )}
 
               <button
                 onClick={handleLogout}

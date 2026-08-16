@@ -33,15 +33,15 @@ export function App() {
       } catch (e) {}
     }
     return {
-      id: 'usr-admin-01',
-      username: 'alex_admin',
-      displayName: 'Алексей (Администратор)',
-      email: 'admin@smarttv.com',
-      role: 'admin',
-      plan: '4k',
-      subscription_expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
-      connected_devices_count: 3,
-      isSubscribed: true
+      id: 'usr-user-01',
+      username: 'alex_viewer',
+      displayName: 'Пользователь Alex HD',
+      email: 'user@alexhd.app',
+      role: 'user',
+      plan: 'standard',
+      subscription_expires_at: null,
+      connected_devices_count: 1,
+      isSubscribed: false
     };
   });
 
@@ -350,12 +350,59 @@ export function App() {
                   user.role === 'admin' ? (
                     <AdminPage />
                   ) : (
-                    <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4 text-center">
-                      <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-amber-400">
-                        <p className="font-mono text-sm font-bold uppercase">Доступ ограничен</p>
-                        <p className="text-xs text-[#e6e3df]/70 mt-1">
-                          Панель управления узлами и нодами доступна только администраторам. Переключите роль в профиле.
-                        </p>
+                    <div className="min-h-[60vh] flex flex-col items-center justify-center p-6 text-center">
+                      <div className="max-w-md w-full bg-[#121110] border border-[#d4b581]/30 rounded-3xl p-8 shadow-2xl space-y-6">
+                        <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                          <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h3 className="font-serif text-xl font-bold text-white">Вход в панель администратора</h3>
+                          <p className="text-xs text-[#e6e3df]/70 font-mono mt-1">
+                            Раздел управления серверами и нодами защищен мастер-паролем.
+                          </p>
+                        </div>
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const formData = new FormData(e.currentTarget);
+                            const pwd = formData.get('adminPassword')?.toString() || '';
+                            if (pwd === 'admin123' || pwd === 'StrongAlexHdPass2026!' || pwd === 'alexhd2026') {
+                              const adminProfile: UserProfile = {
+                                id: 'usr-admin-01',
+                                username: 'alex_admin',
+                                displayName: 'Алексей (Администратор)',
+                                email: 'admin@smarttv.com',
+                                role: 'admin',
+                                plan: '4k',
+                                subscription_expires_at: new Date(Date.now() + 365 * 86400000).toISOString(),
+                                connected_devices_count: 3,
+                                isSubscribed: true
+                              };
+                              setUser(adminProfile);
+                              localStorage.setItem('alexhd_current_profile', JSON.stringify(adminProfile));
+                              showToast('Авторизация успешна', 'Доступ к панели управления предоставлен', 'success');
+                            } else {
+                              showToast('Ошибка доступа', 'Неверный пароль администратора', 'warning');
+                            }
+                          }}
+                          className="space-y-4"
+                        >
+                          <input
+                            type="password"
+                            name="adminPassword"
+                            placeholder="Введите пароль администратора..."
+                            required
+                            className="w-full px-4 py-3 bg-black/40 border border-[#e6e3df]/20 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-[#d4b581] transition-colors"
+                          />
+                          <button
+                            type="submit"
+                            className="w-full py-3 bg-[#d4b581] hover:bg-[#c3a470] text-black font-mono text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-lg cursor-pointer"
+                          >
+                            Подтвердить доступ
+                          </button>
+                        </form>
                       </div>
                     </div>
                   )
