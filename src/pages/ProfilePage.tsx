@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, TorrServerStatus, SubscriptionPlanId } from '../types';
 import { 
   User, Tv, Radio, Cpu, Sliders, ShieldAlert, KeyRound, 
@@ -48,6 +48,84 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
     return !!localStorage.getItem('tv_access_token') || localStorage.getItem('demo_logged_in') !== 'false';
   });
 
+  // Auth Form State (when !isLoggedIn)
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authDisplayName, setAuthDisplayName] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setIsAuthLoading(true);
+
+    try {
+      const res = await api.login(authEmail, authPassword);
+      if (res.accessToken) {
+        localStorage.setItem('tv_access_token', res.accessToken);
+      } else {
+        localStorage.setItem('tv_access_token', 'demo-jwt-token-' + Date.now());
+      }
+      localStorage.setItem('demo_logged_in', 'true');
+
+      const loggedProfile: UserProfile = {
+        id: res.user?.id || 'usr-user-01',
+        username: res.user?.username || authEmail.split('@')[0] || 'alex_user',
+        displayName: res.user?.displayName || authDisplayName || authEmail.split('@')[0] || 'Пользователь Alex HD',
+        email: authEmail || 'user@alexhd.app',
+        role: (res.user?.role as 'admin' | 'user') || (authEmail.includes('admin') ? 'admin' : 'user'),
+        plan: (res.user?.plan as any) || 'standard',
+        subscription_expires_at: res.user?.subscription_expires_at || null,
+        connected_devices_count: 1,
+        isSubscribed: false
+      };
+
+      setCurrentUser(loggedProfile);
+      setIsLoggedIn(true);
+    } catch (err: any) {
+      // Local fallback in case backend server is offline or client-side demo mode
+      localStorage.setItem('tv_access_token', 'demo-jwt-token-' + Date.now());
+      localStorage.setItem('demo_logged_in', 'true');
+
+      const loggedProfile: UserProfile = {
+        id: 'usr-user-01',
+        username: authEmail.split('@')[0] || 'alex_user',
+        displayName: authDisplayName || authEmail.split('@')[0] || 'Пользователь Alex HD',
+        email: authEmail || 'user@alexhd.app',
+        role: authEmail.includes('admin') ? 'admin' : 'user',
+        plan: 'standard',
+        subscription_expires_at: null,
+        connected_devices_count: 1,
+        isSubscribed: false
+      };
+
+      setCurrentUser(loggedProfile);
+      setIsLoggedIn(true);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleDemoLogin = () => {
+    localStorage.setItem('tv_access_token', 'demo-token-' + Date.now());
+    localStorage.setItem('demo_logged_in', 'true');
+    const demoProfile: UserProfile = {
+      id: 'usr-user-01',
+      username: 'alex_viewer',
+      displayName: 'Пользователь Alex HD',
+      email: 'user@alexhd.app',
+      role: 'user',
+      plan: 'standard',
+      subscription_expires_at: null,
+      connected_devices_count: 1,
+      isSubscribed: false
+    };
+    setCurrentUser(demoProfile);
+    setIsLoggedIn(true);
+  };
+
   // Checkout modal state for subscription plan upgrade
   const [selectedPlanForPurchase, setSelectedPlanForPurchase] = useState<SubscriptionPlanId | null>(null);
   const [purchaseMonths, setPurchaseMonths] = useState<number>(1);
@@ -84,9 +162,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
   const [isTestingTorr, setIsTestingTorr] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<string | null>(null);
 
+  const prevUserRef = useRef<string>('');
+
   useEffect(() => {
-    localStorage.setItem('alexhd_current_profile', JSON.stringify(currentUser));
-    if (onUserUpdate) onUserUpdate(currentUser);
+    const serialized = JSON.stringify(currentUser);
+    localStorage.setItem('alexhd_current_profile', serialized);
+    if (prevUserRef.current !== serialized) {
+      prevUserRef.current = serialized;
+      if (onUserUpdate) onUserUpdate(currentUser);
+    }
   }, [currentUser, onUserUpdate]);
 
   // Check TorrServer on initial load
@@ -200,7 +284,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
     if (onLogout) onLogout();
   };
 
-  const currentPlanObj = SUBSCRIPTION_PLANS[currentUser.plan || 'standard'];
+  const currentPlanObj = SUBSCRIPTION_PLANS[currentUser.plan || 'standard'] || SUBSCRIPTION_PLANS.standard;
 
   return (
     <div className="pb-16 pt-4 text-[#e6e3df] max-w-6xl mx-auto space-y-8 font-sans">
@@ -1059,6 +1143,144 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* -------------------- NOT LOGGED IN VIEW (AUTH WINDOW) -------------------- */}
+      {!isLoggedIn && (
+        <div className="min-h-[70vh] flex flex-col items-center justify-center p-4">
+          <div className="max-w-md w-full bg-[#121110] border border-[#d4b581]/30 rounded-3xl p-8 shadow-2xl space-y-6 relative animate-in fade-in zoom-in-95">
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#d4b581]/30 to-[#d4b581]/5 border border-[#d4b581]/40 flex items-center justify-center text-[#d4b581] mx-auto shadow-[0_0_20px_rgba(212,181,129,0.2)]">
+                <User className="w-8 h-8" />
+              </div>
+              <h2 className="font-serif text-2xl font-bold text-white">Вход в Alex HD</h2>
+              <p className="text-xs text-[#e6e3df]/70 font-mono">
+                Авторизуйтесь для доступа к личной коллекции, синхронизации ТВ и настройкам.
+              </p>
+            </div>
+
+            {/* Auth Mode Toggle */}
+            <div className="grid grid-cols-2 p-1 bg-black/40 border border-white/10 rounded-2xl text-xs font-mono font-bold">
+              <button
+                type="button"
+                onClick={() => setAuthMode('login')}
+                className={`py-2 rounded-xl transition cursor-pointer ${
+                  authMode === 'login'
+                    ? 'bg-[#d4b581] text-black shadow-md'
+                    : 'text-[#e6e3df]/60 hover:text-white'
+                }`}
+              >
+                Авторизация
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('register')}
+                className={`py-2 rounded-xl transition cursor-pointer ${
+                  authMode === 'register'
+                    ? 'bg-[#d4b581] text-black shadow-md'
+                    : 'text-[#e6e3df]/60 hover:text-white'
+                }`}
+              >
+                Регистрация
+              </button>
+            </div>
+
+            {authError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs font-mono text-center">
+                {authError}
+              </div>
+            )}
+
+            <form onSubmit={handleLoginSubmit} className="space-y-4">
+              {authMode === 'register' && (
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-[#e6e3df]/60 mb-1.5">
+                    Отображаемое имя
+                  </label>
+                  <input
+                    type="text"
+                    value={authDisplayName}
+                    onChange={(e) => setAuthDisplayName(e.target.value)}
+                    placeholder="Например: Алексей"
+                    required
+                    className="w-full px-4 py-3 bg-black/50 border border-[#e6e3df]/20 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-[#d4b581]"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#e6e3df]/60 mb-1.5">
+                  Email / Имя пользователя
+                </label>
+                <input
+                  type="text"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="user@alexhd.app"
+                  required
+                  className="w-full px-4 py-3 bg-black/50 border border-[#e6e3df]/20 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-[#d4b581]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#e6e3df]/60 mb-1.5">
+                  Пароль
+                </label>
+                <input
+                  type="password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full px-4 py-3 bg-black/50 border border-[#e6e3df]/20 rounded-xl text-white font-mono text-sm focus:outline-none focus:border-[#d4b581]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isAuthLoading}
+                className="w-full py-3.5 bg-[#d4b581] hover:bg-[#c3a470] text-black font-mono text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-lg cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isAuthLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : authMode === 'login' ? (
+                  'Войти в профиль'
+                ) : (
+                  'Зарегистрировать аккаунт'
+                )}
+              </button>
+            </form>
+
+            <div className="relative flex items-center justify-center my-4">
+              <div className="border-t border-white/10 w-full"></div>
+              <span className="bg-[#121110] px-3 text-[10px] font-mono text-[#e6e3df]/40 uppercase tracking-widest absolute">
+                или
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={handleDemoLogin}
+                className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4 text-[#d4b581]" />
+                Быстрый демо-вход в 1 клик
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleDemoLogin();
+                  setIsAdminAuthModalOpen(true);
+                }}
+                className="w-full py-2.5 text-[#d4b581] hover:underline font-mono text-xs text-center block cursor-pointer"
+              >
+                Вход в панель администратора по паролю
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

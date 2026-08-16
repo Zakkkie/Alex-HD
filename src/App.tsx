@@ -342,7 +342,7 @@ export function App() {
                 {activeTab === 'profile' && (
                   <ProfilePage
                     user={user}
-                    onUserUpdate={(updated) => setUser(updated)}
+                    onUserUpdate={setUser}
                   />
                 )}
 

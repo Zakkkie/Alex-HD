@@ -119,7 +119,7 @@ export class TorrServerService {
         ? `Таймаут соединения (3000ms) к ${cleanUrl}` 
         : `Сервер недоступен: ${e.message || 'ECONNREFUSED'}`;
       
-      fileLogger.error('TorrServerService', 'PING_FAILED', `Не удалось связаться с TorrServer по адресу ${cleanUrl}`, { error: errMsg, url: cleanUrl });
+      fileLogger.info('TorrServerService', 'PING_OFFLINE', `TorrServer недоступен по адресу ${cleanUrl}: ${errMsg}`, { url: cleanUrl, error: errMsg });
 
       return {
         online: false,
@@ -223,7 +223,7 @@ export class TorrServerService {
         ]
       };
     } catch (err: any) {
-      fileLogger.error('TorrServerService', 'TORRENT_STATS_ERROR', `Ошибка запроса торрента ${cleanHash}`, { error: err.message });
+      fileLogger.warn('TorrServerService', 'TORRENT_STATS_WARN', `Ошибка запроса торрента ${cleanHash}`, { error: err.message });
       return {
         hash: cleanHash,
         title: 'Torrent Error',
