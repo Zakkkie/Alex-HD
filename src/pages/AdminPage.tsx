@@ -1625,6 +1625,7 @@ export const AdminPage: React.FC = () => {
                 placeholder="Введите название фильма (например: Оппенгеймер, Матрица, Дюна)..."
                 value={metaSearchQuery}
                 onChange={e => setMetaSearchQuery(e.target.value)}
+                onKeyDown={e => e.stopPropagation()}
                 className="flex-1 px-4 py-3 bg-[#171615] border border-[#e6e3df]/15 rounded-xl text-white placeholder-[#e6e3df]/40 outline-none text-xs font-mono"
               />
               <button
@@ -1684,6 +1685,7 @@ export const AdminPage: React.FC = () => {
                     placeholder="Например: Аватар: Путь воды 4K"
                     value={manualTitle}
                     onChange={e => setManualTitle(e.target.value)}
+                    onKeyDown={e => e.stopPropagation()}
                     className="w-full px-4 py-2.5 bg-[#171615] border border-[#e6e3df]/15 rounded-xl text-white outline-none"
                   />
                 </div>
@@ -1709,6 +1711,7 @@ export const AdminPage: React.FC = () => {
                   placeholder="https://.../stream.m3u8 или magnet:?xt=urn:btih:..."
                   value={manualStream}
                   onChange={e => setManualStream(e.target.value)}
+                  onKeyDown={e => e.stopPropagation()}
                   className="w-full px-4 py-2.5 bg-[#171615] border border-[#e6e3df]/15 rounded-xl text-white outline-none"
                 />
               </div>
@@ -1720,6 +1723,7 @@ export const AdminPage: React.FC = () => {
                   placeholder="https://images.unsplash.com/..."
                   value={manualPoster}
                   onChange={e => setManualPoster(e.target.value)}
+                  onKeyDown={e => e.stopPropagation()}
                   className="w-full px-4 py-2.5 bg-[#171615] border border-[#e6e3df]/15 rounded-xl text-white outline-none"
                 />
               </div>

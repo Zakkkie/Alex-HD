@@ -920,60 +920,116 @@ sudo ufw status verbose
 
 ---
 
-## Этап 8: Подключение телевизоров Smart TV и приложения Media Station X (MSX)
+## Этап 8: Подключение телевизоров Smart TV и развертывание Vite-клиента на Vercel (`https://alex-hd.vercel.app/`)
 
-Платформа Alex HD полностью оптимизирована для управления обычным пультом дистанционного управления телевизора (D-Pad стрелки Вверх/Вниз/Влево/Вправо, OK, Return/Назад, Play/Pause).
+Платформа Alex HD полностью оптимизирована для работы в форме современного Vite SPA приложения, развернутого на **Vercel** по адресу `https://alex-hd.vercel.app/`, с интерфейсом для управления пультом ДУ Smart TV (D-Pad стрелки, OK, Return/Назад, Play/Pause).
 
-### Развертывание веб-интерфейса на Vercel (alexhd.vercel.app) и защита прав администратора
+---
 
-Если ваш веб-интерфейс развернут на **Vercel** (`https://alex-hd.vercel.app`):
+### 8.1. Развертывание фронтенда Vite на Vercel (`https://alex-hd.vercel.app/`)
 
-1. **Режимы авторизации и входа пользователей**:
-   - **Форма входа и регистрации**: В разделе «Аккаунт» доступна полноценная форма авторизации с переключением между *«Авторизация»* и *«Регистрация»*.
-   - **Быстрый демо-вход в 1 клик**: Позволяет мгновенно начать просмотр без ввода пароля для демонстрационных целей.
-   - **Защита доступа администратора**:
-     - Все новые посетители и зарегистрированные пользователи по умолчанию заходят в стандартной роли зрителя (`Пользователь Alex HD` / `user`).
-     - Панель управления узлами, серверами и нодами (`/admin`) защищена и доступна только владельцу/администратору.
-     - Для активирования прав администратора выберите в разделе **Аккаунт** пункт **«Вход для Администратора»** и введите мастер-пароль (`admin123` или `StrongAlexHdPass2026!`).
-     - Сессия администратора сохраняется в локальном хранилище. Для выхода из режима администратора достаточно нажать **«Выйти из админки»**.
+Если вы разворачиваете или обновляете клиентскую часть Vite на **Vercel**:
 
-2. **Настройка переменных окружения в Vercel**:
-   В панели Vercel (**Project Settings -> Environment Variables**) добавьте:
-   - `VITE_TORRSERVER_URL` = `https://IP_ВАШЕГО_VPS/torrserver`
-   - `VITE_API_URL` = `https://IP_ВАШЕГО_VPS`
+#### 1. Конфигурационный файл `vercel.json` (Уже создан в корне проекта):
+Для правильного перенаправления маршрутов Single Page Application (SPA) и корректной отдачи манифеста MSX без 404 ошибок используется файл `vercel.json`:
+```json
+{
+  "version": 2,
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/msx.json",
+      "destination": "/msx.json"
+    },
+    {
+      "source": "/msx/start.json",
+      "destination": "/msx/start.json"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-Requested-With, Content-Type, Authorization, X-Device-Id"
+        }
+      ]
+    }
+  ]
+}
+```
 
-3. **CORS в Nginx на VPS**:
-   В конфигурации Nginx на VPS для пути `/torrserver/` добавьте заголовок CORS для работы с Vercel:
-   ```nginx
-   add_header 'Access-Control-Allow-Origin' 'https://alex-hd.vercel.app' always;
-   ```
+#### 2. Переменные окружения в Vercel:
+В панели Vercel (**Project Settings -> Environment Variables**) задайте параметры связки с вашим VPS сервером:
+- `VITE_TORRSERVER_URL` = `https://IP_ВАШЕГО_VPS/torrserver` *(или `https://tv.yourdomain.com/torrserver`)*
+- `VITE_API_URL` = `https://IP_ВАШЕГО_VPS` *(или `https://tv.yourdomain.com`)*
 
-### Способ 1: Через бесплатное приложение Media Station X (Рекомендуется для любого ТВ)
+#### 3. Команда сборки Vite (Build command):
+В настройках проекта Vercel укажите:
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+- **Node.js Version**: `20.x`
+
+#### 4. Защита доступа и роли пользователей на `https://alex-hd.vercel.app/`:
+- **Форма входа и регистрации**: В разделе «Аккаунт» доступна полноценная авторизация с переключением между *«Авторизация»* и *«Регистрация»*.
+- **Быстрый демо-вход в 1 клик**: Мгновенный просмотр без ввода пароля для презентаций и тестов.
+- **Защита панели администратора**:
+  - Все новые пользователи заходят в роли зрителя (`user`).
+  - Разделы управления кластером и нодами (`/admin`) защищены мастер-паролем (`admin123` или `StrongAlexHdPass2026!`).
+  - Для активации прав администратора перейдите в **Аккаунт** -> **«Вход для Администратора»**.
+
+#### 5. Настройка CORS в Nginx на VPS:
+Чтобы браузер Smart TV не блокировал вызовы с Vercel-домена `https://alex-hd.vercel.app` к бэкенду и TorrServer на VPS, укажите заголовки в Nginx на сервере:
+```nginx
+# В блоках location / и location /torrserver/ файла /etc/nginx/sites-available/alexhd.conf:
+add_header 'Access-Control-Allow-Origin' 'https://alex-hd.vercel.app' always;
+add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
+add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Device-Id' always;
+```
+
+---
+
+### 8.2. Способ 1: Подключение через приложения Media Station X (MSX) по домену Vercel
+
 Приложение **Media Station X (MSX)** доступно официально в магазинах приложений на:
-- **Samsung Smart TV** (Tizen OS 2016–2026 годов выпуска);
+- **Samsung Smart TV** (Tizen OS 2016–2026 годов);
 - **LG Smart TV** (webOS 3.0+);
 - **Android TV / Google TV / ТВ-приставки Xiaomi, Realme, Nvidia Shield**;
 - **Apple TV** (tvOS);
 - **Яндекс ТВ / Салют ТВ / VIDAA (Hisense)**.
 
-**Инструкция по настройке за 1 минуту:**
-1. Откройте магазин приложений на телевизоре (например, Samsung Apps или LG Content Store) и найдите приложение **Media Station X**. Установите и запустите его.
-2. В главном меню MSX зайдите в раздел **Settings (Настройки)** -> **Start Parameter (Параметр запуска)** -> **Setup (Установка)**.
-3. Введите адрес вашего Vercel-приложения или VPS сервера:
+**Инструкция по настройке MSX на телевизоре за 1 минуту:**
+1. Откройте магазин приложений на телевизоре и найдите **Media Station X**. Установите и запустите его.
+2. В главном меню MSX перейдите в **Settings (Настройки)** -> **Start Parameter (Параметр запуска)** -> **Setup (Установка)**.
+3. Введите готовый манифест вашего Vercel-домена:
    ```text
    https://alex-hd.vercel.app/msx.json
    ```
-   *(или `tv.yourdomain.com/msx/start.json`)*.
+   *(альтернативный путь: `https://alex-hd.vercel.app/msx/start.json`)*.
 4. Нажмите кнопку **Confirm (Подтвердить)**.
-5. Приложение перезапустится и откроет полноценный интерфейс Alex HD!
+5. Приложение перезагрузится и запустит Alex HD в полноэкранном 1080p/4K режиме Smart TV!
 
 ---
 
-### Способ 2: Через встроенный веб-браузер телевизора или ПК
-1. Откройте встроенный браузер на Smart TV или компьютере.
-2. Перейдите по адресу: `https://alex-hd.vercel.app` (или `https://tv.yourdomain.com`).
-3. Для доступа к функциям администратора зайдите в раздел **Аккаунт** и введите пароль администратора.
-4. Выберите фильм или сериал, нажмите «Смотреть» — видеопоток начнет воспроизводиться мгновенно.
+### 8.3. Способ 2: Прямой просмотр через веб-браузер телевизора или ПК
+1. Перейдите по прямому адресу: `https://alex-hd.vercel.app/`.
+2. В интерфейсе выберите любой фильм, сериал или ТВ-канал.
+3. Видеопоток начнет воспроизводиться мгновенно благодаря P2P-движку TorrServer.
 
 ---
 

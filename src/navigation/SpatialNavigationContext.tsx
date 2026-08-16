@@ -156,14 +156,12 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
 
       // Allow natural keyboard navigation inside text input fields
       if (isTextInput) {
-        if (action === 'ACT_BACK' || e.key === 'Escape') {
+        if (e.key === 'Escape') {
           (activeEl as HTMLElement).blur();
           return;
         }
-        // Let user type and use arrow keys / enter within input fields
-        if (action !== 'NAV_DOWN' && action !== 'NAV_UP') {
-          return;
-        }
+        // Let user type and use arrow keys / enter / backspace naturally within input fields
+        return;
       }
 
       const currNode = nodesMap.current.get(currentFocusId);

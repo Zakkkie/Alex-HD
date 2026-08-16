@@ -178,6 +178,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({ onSelectContent }) => {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
           placeholder="Введите название фильма, сериала или аниме для мгновенного поиска..."
           className="w-full bg-transparent font-serif-body text-xl text-[#e6e3df] placeholder-[#e6e3df]/30 outline-none"
         />

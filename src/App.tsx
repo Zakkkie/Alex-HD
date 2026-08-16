@@ -201,6 +201,17 @@ export function App() {
   // Global TV remote back button handler
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isTextInput =
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          (activeEl as HTMLElement).isContentEditable);
+
+      if (isTextInput) {
+        return;
+      }
+
       const action = normalizeKey(e.keyCode, e.key);
       if (action === 'ACT_BACK') {
         if (playingStream) {
