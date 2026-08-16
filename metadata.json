@@ -1,0 +1,6 @@
+{
+  "name": "Alex HD",
+  "description": "Production-ready distributed Alex HD streaming platform on Media Station X (MSX), Fastify/Express backend, and 10-Foot Spatial Navigation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

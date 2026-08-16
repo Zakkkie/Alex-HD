@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  edge-proxy:
+    image: caddy:alpine
+    container_name: edge_caddy_gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - torrserver
+
+  torrserver:
+    image: yourok/torrserver:latest
+    container_name: edge_torrserver_engine
+    restart: always
+    environment:
+      - TS_PORT=8090
+      - TS_TORRENTSDIR=/torrents
+      - TS_CACHESIZE=100
+      - TS_BUFFERSIZE=200
+    volumes:
+      - /mnt/nvme/torrents_cache:/torrents
+    networks:
+      - edge_network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: edge_node_exporter
+    restart: always
+    networks:
+      - edge_network
+
+networks:
+  edge_network:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

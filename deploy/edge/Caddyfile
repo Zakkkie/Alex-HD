@@ -1,0 +1,18 @@
+stream-01.example.com {
+  tls admin@example.com
+
+  @has_token {
+    query token=*
+  }
+
+  handle @has_token {
+    reverse_proxy torrserver:8090 {
+      header_up Host {upstream_hostport}
+      header_up X-Real-IP {remote_host}
+    }
+  }
+
+  handle {
+    respond "Access Denied: Missing cryptographic stream token" 403
+  }
+}

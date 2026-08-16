@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  gateway:
+    image: nginx:alpine
+    container_name: tv_control_gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./cache:/var/cache/nginx
+    depends_on:
+      - backend
+    networks:
+      - control_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: tv_postgres_db
+    restart: always
+    environment:
+      POSTGRES_DB: tv_master_db
+      POSTGRES_USER: tv_cluster_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets:
+      - pg_password
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - control_network
+
+  backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: tv_core_backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      DATABASE_URL: postgres://tv_cluster_admin:${DB_PASS}@postgres:5432/tv_master_db
+      JWT_SECRET: ${JWT_SECRET}
+      PROWLARR_URL: http://prowlarr:9696
+      PROWLARR_KEY: ${PROWLARR_API_KEY}
+    depends_on:
+      - postgres
+      - prowlarr
+    networks:
+      - control_network
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: tv_prowlarr_indexer
+    restart: always
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - prowlarr_config:/config
+    networks:
+      - control_network
+
+networks:
+  control_network:
+    driver: bridge
+
+volumes:
+  pg_data:
+  prowlarr_config:
+
+secrets:
+  pg_password:
+    file: ./secrets/postgres_password.txt

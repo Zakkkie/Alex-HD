@@ -1,0 +1,16 @@
+{
+  "name": "Enterprise Smart TV Portal",
+  "version": "0.1.0",
+  "parameter": "web:https://tv.example.com",
+  "icon": "https://tv.example.com/assets/icons/app-icon-512.png",
+  "background": "https://tv.example.com/assets/images/boot-background.jpg",
+  "preload": true,
+  "cache": false,
+  "options": {
+    "fullscreen": true,
+    "interactive": true,
+    "input": 1,
+    "layout": "1080p",
+    "secure": 1
+  }
+}
