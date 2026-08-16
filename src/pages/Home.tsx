@@ -35,7 +35,17 @@ export const Home: React.FC<HomeProps> = ({
     return list.slice(0, 6);
   }, [data]);
 
-  if (!data || !data.hero) return null;
+  if (!data || !data.hero) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+        <div className="w-12 h-12 border-4 border-[#e5a93c] border-t-transparent rounded-full animate-spin mb-4" />
+        <h2 className="text-xl font-bold text-white mb-2">Загрузка каталога Alex HD...</h2>
+        <p className="text-white/60 text-sm max-w-md">
+          Подключение к серверу и загрузка списка фильмов...
+        </p>
+      </div>
+    );
+  }
 
   const filterItems = (items: ContentItem[]) => {
     if (!items) return [];
