@@ -44,6 +44,9 @@ interface SeriesDetailProps {
 }
 
 const getStillsForContent = (item: any) => {
+  if (item.stills && Array.isArray(item.stills) && item.stills.length > 0) {
+    return item.stills;
+  }
   const defaultStills = [
     "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=600&q=80",
     "https://images.unsplash.com/photo-1478720143022-9099477e643b?auto=format&fit=crop&w=600&q=80",
@@ -111,13 +114,26 @@ const getCastForContent = (item: any) => {
 };
 
 export const SeriesDetail: React.FC<SeriesDetailProps> = ({
-  content,
+  content: initialContent,
   onPlayEpisode,
   onBack,
   onToggleFavorite,
   onToggleWatchlist,
   onSelectContent
 }) => {
+  const [content, setFullContent] = useState<any>(initialContent);
+
+  useEffect(() => {
+    setFullContent(initialContent);
+    api.getContentDetail(initialContent.id).then((enriched) => {
+      if (enriched) {
+        setFullContent((prev: any) => ({ ...prev, ...enriched }));
+      }
+    }).catch(err => {
+      console.warn('Series detail hydration warning:', err);
+    });
+  }, [initialContent.id]);
+
   const seasons: Season[] = content.seasons || [];
   const [selectedSeasonIdx, setSelectedSeasonIdx] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'episodes' | 'voiceovers' | 'torrserver'>('episodes');

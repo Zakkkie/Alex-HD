@@ -78,6 +78,33 @@ export const AdminPage: React.FC = () => {
   const [metaResults, setMetaResults] = useState<any[]>([]);
   const [isSearchingMeta, setIsSearchingMeta] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{
+    isSyncing: boolean;
+    progressPercent: number;
+    currentStep: string;
+    itemsAdded: number;
+    totalCatalogCount: number;
+    error: string | null;
+    lastSyncTimestamp: string | null;
+    apiReports?: Array<{
+      name: string;
+      service: string;
+      status: 'ok' | 'error';
+      pingMs?: number;
+      error?: string;
+      details?: string;
+    }>;
+  }>({
+    isSyncing: false,
+    progressPercent: 0,
+    currentStep: 'Готов к синхронизации',
+    itemsAdded: 0,
+    totalCatalogCount: 0,
+    error: null,
+    lastSyncTimestamp: null,
+    apiReports: []
+  });
+
   const [manualTitle, setManualTitle] = useState('');
   const [manualType, setManualType] = useState<'movie' | 'series'>('movie');
   const [manualStream, setManualStream] = useState('');
@@ -98,16 +125,17 @@ export const AdminPage: React.FC = () => {
           location: n.region || 'Россия / VPS',
           countryCode: 'RU',
           status: n.isOnline ? 'online' : 'offline',
-          cpuUsage: n.cpuUsagePercent || 0,
-          ramUsage: n.ramUsagePercent || 0,
-          diskUsage: n.diskUsagePercent || 0,
-          bandwidthGbps: Math.round(((n.bandwidthMbps || 0) / 1000) * 10) / 10,
-          activeStreams: n.activeStreams || 0,
-          pingMs: n.pingMs ?? (n.isOnline ? 12 : -1),
+          cpuUsage: n.isOnline && typeof n.cpuUsagePercent === 'number' ? n.cpuUsagePercent : null,
+          ramUsage: n.isOnline && typeof n.ramUsagePercent === 'number' ? n.ramUsagePercent : null,
+          diskUsage: n.isOnline && typeof n.diskUsagePercent === 'number' ? n.diskUsagePercent : null,
+          bandwidthGbps: n.isOnline && typeof n.bandwidthMbps === 'number' ? Math.round(((n.bandwidthMbps || 0) / 1000) * 10) / 10 : null,
+          activeStreams: n.isOnline ? (n.activeStreams || 0) : 0,
+          pingMs: n.isOnline && typeof n.pingMs === 'number' && n.pingMs > 0 ? n.pingMs : null,
           uptimeHours: n.uptimeHours || 1,
-          errorCount24h: 0,
-          version: n.version || 'TorrServer MatriX.134',
-          lastHealthCheck: n.isOnline ? 'Только что' : 'Оффлайн'
+          errorCount24h: n.error ? 1 : 0,
+          version: n.version || (n.isOnline ? 'TorrServer MatriX.134' : 'N/A'),
+          lastHealthCheck: n.isOnline ? 'Только что' : 'Оффлайн (Нет связи)',
+          lastError: n.error || (!n.isOnline ? 'Сервер недоступен (ECONNREFUSED / No Ping)' : undefined)
         })));
       }
 
@@ -168,6 +196,7 @@ export const AdminPage: React.FC = () => {
     try {
       const res = await api.getMetadataStatus();
       setMetadataStatus(res);
+      handleCheckApisOnly();
     } catch (e) {
       console.warn('Metadata status load deferred:', e);
     }
@@ -335,6 +364,59 @@ export const AdminPage: React.FC = () => {
       setSelectedUserForEdit(adminStore.getUser(userId) || null);
     } catch (err: any) {
       alert(`Ошибка: ${err.message}`);
+    }
+  };
+
+  // Metadata Auto-Sync Polling Effect
+  useEffect(() => {
+    let timer: any = null;
+    if (syncProgress.isSyncing) {
+      timer = setInterval(async () => {
+        const prog = await api.getMetadataSyncProgress().catch(() => null);
+        if (prog) {
+          setSyncProgress(prog);
+          if (!prog.isSyncing) {
+            clearInterval(timer);
+            setSyncStatus(`Синхронизация завершена! Добавлено ${prog.itemsAdded} элементов.`);
+            setTimeout(() => setSyncStatus(null), 5000);
+          }
+        }
+      }, 700);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [syncProgress.isSyncing]);
+
+  const handleCheckApisOnly = async () => {
+    try {
+      const res = await api.checkAPIs();
+      if (res && res.reports) {
+        setSyncProgress(prev => ({
+          ...prev,
+          apiReports: res.reports
+        }));
+      }
+    } catch (err: any) {
+      console.warn('API Check failed:', err);
+    }
+  };
+
+  const handleTriggerSync = async () => {
+    handleCheckApisOnly();
+    setSyncProgress(prev => ({
+      ...prev,
+      isSyncing: true,
+      progressPercent: 5,
+      currentStep: 'Запуск диагностики и обновления API TMDB и TVDB...'
+    }));
+    try {
+      const res = await api.autoPopulateCatalog();
+      if (res && (res as any).initialProgress) {
+        setSyncProgress((res as any).initialProgress);
+      }
+    } catch (err: any) {
+      setSyncProgress(prev => ({ ...prev, isSyncing: false, error: err.message || 'Ошибка запуска' }));
     }
   };
 
@@ -725,12 +807,14 @@ export const AdminPage: React.FC = () => {
                           <span className="flex items-center gap-1.5">
                             <Cpu className="w-3.5 h-3.5 text-[#d4b581]" /> Нагрузка CPU
                           </span>
-                          <span>{node.cpuUsage}%</span>
+                          <span className={node.cpuUsage !== null ? "text-white" : "text-red-400 font-bold"}>
+                            {node.cpuUsage !== null ? `${node.cpuUsage}%` : 'NONE'}
+                          </span>
                         </div>
                         <div className="w-full bg-[#1c1b18] h-2 rounded-full overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-                            style={{ width: `${Math.max(5, node.cpuUsage)}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${node.cpuUsage !== null ? 'bg-emerald-400' : 'bg-red-500/30'}`}
+                            style={{ width: `${Math.max(5, node.cpuUsage || 0)}%` }}
                           />
                         </div>
                       </div>
@@ -741,12 +825,14 @@ export const AdminPage: React.FC = () => {
                           <span className="flex items-center gap-1.5">
                             <HardDrive className="w-3.5 h-3.5 text-[#38bdf8]" /> Память RAM
                           </span>
-                          <span>{node.ramUsage}%</span>
+                          <span className={node.ramUsage !== null ? "text-white" : "text-red-400 font-bold"}>
+                            {node.ramUsage !== null ? `${node.ramUsage}%` : 'NONE'}
+                          </span>
                         </div>
                         <div className="w-full bg-[#1c1b18] h-2 rounded-full overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-[#38bdf8] transition-all duration-500"
-                            style={{ width: `${Math.max(10, node.ramUsage)}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ${node.ramUsage !== null ? 'bg-[#38bdf8]' : 'bg-red-500/30'}`}
+                            style={{ width: `${Math.max(10, node.ramUsage || 0)}%` }}
                           />
                         </div>
                       </div>
@@ -755,15 +841,31 @@ export const AdminPage: React.FC = () => {
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#e6e3df]/5 text-[11px]">
                         <div>
                           <p className="text-[#e6e3df]/40 text-[9px]">ОТКЛИК (PING)</p>
-                          <p className="font-bold text-white flex items-center gap-1">
-                            {isPinging ? <RefreshCw className="w-3 h-3 animate-spin text-[#d4b581]" /> : `${node.pingMs > 0 ? node.pingMs : 12} ms`}
+                          <p className="font-bold flex items-center gap-1">
+                            {isPinging ? (
+                              <RefreshCw className="w-3 h-3 animate-spin text-[#d4b581]" />
+                            ) : node.pingMs !== null && node.pingMs > 0 ? (
+                              <span className="text-white">{node.pingMs} ms</span>
+                            ) : (
+                              <span className="text-red-400">NONE</span>
+                            )}
                           </p>
                         </div>
                         <div>
                           <p className="text-[#e6e3df]/40 text-[9px]">СТРИМОВ</p>
-                          <p className="font-bold text-[#d4b581]">{node.activeStreams}</p>
+                          <p className={node.activeStreams > 0 ? "font-bold text-[#d4b581]" : "text-[#e6e3df]/40"}>
+                            {isOnline ? node.activeStreams : 'NONE'}
+                          </p>
                         </div>
                       </div>
+
+                      {/* Error Banner when Offline or Error */}
+                      {(!isOnline || node.lastError) && (
+                        <div className="mt-2 p-2 bg-red-950/50 border border-red-500/40 rounded-lg text-[10px] text-red-300 font-mono flex items-center gap-1.5 animate-in fade-in">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                          <span className="truncate">{node.lastError || 'Узел не отвечает / Данные отсутствуют'}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Node Controls */}
@@ -963,6 +1065,170 @@ export const AdminPage: React.FC = () => {
               <span>{syncStatus}</span>
             </div>
           )}
+
+          {/* TMDB & TVDB Refresh & Progress Panel */}
+          <div className="p-6 bg-[#0f0e0d] border border-[#d4b581]/30 rounded-2xl space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-serif text-lg font-bold text-white flex items-center gap-2">
+                  <RefreshCw className={`w-5 h-5 text-[#d4b581] ${syncProgress.isSyncing ? 'animate-spin' : ''}`} />
+                  <span>Обновление API TMDB и TVDB</span>
+                </h3>
+                <p className="text-xs text-[#e6e3df]/60 mt-1">
+                  Загрузка трендов, новинок, описаний и подробной диагностики подсоединения к внешним API.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCheckApisOnly}
+                  disabled={syncProgress.isSyncing}
+                  className="px-3 py-2.5 rounded-xl font-bold text-[11px] uppercase tracking-wider bg-[#1c1b18] hover:bg-[#282622] text-[#e6e3df] border border-[#e6e3df]/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Быстрая диагностика без запуска полного импорта"
+                >
+                  <Activity className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Проверить API</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTriggerSync}
+                  disabled={syncProgress.isSyncing}
+                  className={`px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                    syncProgress.isSyncing
+                      ? 'bg-[#1c1b18] text-[#e6e3df]/40 border border-[#e6e3df]/10 cursor-not-allowed'
+                      : 'bg-[#d4b581] hover:bg-[#c3a470] text-black shadow-lg shadow-[#d4b581]/20 active:scale-95'
+                  }`}
+                >
+                  <RefreshCw className={`w-4 h-4 ${syncProgress.isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{syncProgress.isSyncing ? 'Синхронизация...' : 'Обновить API TMDB и TVDB'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Live Progress Indicator */}
+            {(syncProgress.isSyncing || syncProgress.progressPercent > 0) && (
+              <div className="space-y-3 pt-3 border-t border-[#e6e3df]/10 font-mono">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#d4b581] font-semibold flex items-center gap-2">
+                    {syncProgress.isSyncing && <span className="w-2 h-2 rounded-full bg-[#d4b581] animate-ping" />}
+                    <span>{syncProgress.currentStep}</span>
+                  </span>
+                  <span className="text-white font-bold text-sm ml-2">{syncProgress.progressPercent}%</span>
+                </div>
+
+                {/* Animated Progress Bar */}
+                <div className="w-full bg-[#1c1b18] h-3.5 rounded-full overflow-hidden border border-[#e6e3df]/10 relative">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#d4b581] via-[#e5c793] to-[#38bdf8] transition-all duration-300 relative"
+                    style={{ width: `${Math.max(3, syncProgress.progressPercent)}%` }}
+                  >
+                    {syncProgress.isSyncing && (
+                      <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between text-[11px] text-[#e6e3df]/60 gap-2 pt-1 border-t border-[#e6e3df]/5">
+                  <div>
+                    Добавлено элементов: <span className="text-emerald-400 font-bold">{syncProgress.itemsAdded}</span>
+                  </div>
+                  <div>
+                    Всего в каталоге: <span className="text-[#d4b581] font-bold">{syncProgress.totalCatalogCount || metaResults.length || 0}</span>
+                  </div>
+                  {syncProgress.lastSyncTimestamp && (
+                    <div>
+                      Время обновления: <span className="text-[#e6e3df]/40">{new Date(syncProgress.lastSyncTimestamp).toLocaleTimeString()}</span>
+                    </div>
+                  )}
+                </div>
+
+                {syncProgress.error && (
+                  <div className="p-3 bg-red-950/50 border border-red-500/40 rounded-xl text-red-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <span>Ошибка синхронизации: {syncProgress.error}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* API Health Reports Grid (Explicit indication of working / non-working APIs) */}
+            {syncProgress.apiReports && syncProgress.apiReports.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-[#e6e3df]/10 font-mono">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#d4b581] font-bold uppercase tracking-wider flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-[#38bdf8]" />
+                    <span>Диагностический отчет API ({syncProgress.apiReports.length} провайдеров)</span>
+                  </span>
+
+                  {syncProgress.apiReports.some(r => r.status === 'error') ? (
+                    <span className="px-2.5 py-1 bg-red-950/80 border border-red-500/60 text-red-400 rounded-lg text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Обнаружены неработающие API!
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 bg-emerald-950/80 border border-emerald-500/60 text-emerald-400 rounded-lg text-[10px] font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Все API работают
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {syncProgress.apiReports.map((report, idx) => {
+                    const isOk = report.status === 'ok';
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3.5 rounded-xl border font-mono transition-all ${
+                          isOk
+                            ? 'bg-[#121110] border-emerald-500/30 text-emerald-200'
+                            : 'bg-red-950/40 border-red-500/70 text-red-200 shadow-lg shadow-red-950/50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2">
+                            {isOk ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                            )}
+                            <div>
+                              <h5 className="text-xs font-bold text-white leading-snug">{report.name}</h5>
+                              {report.details && (
+                                <span className="text-[10px] text-[#e6e3df]/40 block mt-0.5">{report.details}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase shrink-0 ${
+                              isOk
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-red-500/30 text-red-300 border border-red-500/60'
+                            }`}
+                          >
+                            {isOk ? `OK (${report.pingMs ?? 0}ms)` : 'НЕ РАБОТАЕТ'}
+                          </span>
+                        </div>
+
+                        {!isOk && report.error && (
+                          <div className="mt-2.5 p-2 bg-red-950/90 border border-red-500/50 rounded-lg text-[11px] text-red-200 flex items-start gap-1.5 leading-snug">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-bold text-red-300">Причина: </span>
+                              <span>{report.error}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Search External Catalog Form */}
           <div className="p-6 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-2xl space-y-4">

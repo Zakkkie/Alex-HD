@@ -123,13 +123,6 @@ async function startServer() {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (token && (token === 'demo-fallback-token' || token === 'demo-admin-token' || token === 'demo-google-token' || token === 'demo-apple-token')) {
-      req.userId = 'usr-admin-01';
-      req.role = 'admin';
-      req.deviceId = 'admin-console-device';
-      return next();
-    }
-
     if (token && token !== 'null' && token !== 'undefined' && token.trim() !== '') {
       try {
         const decoded = jwt.verify(token, config.jwtSecret) as any;
@@ -140,15 +133,11 @@ async function startServer() {
           return next();
         }
       } catch (err) {
-        // Fall back to default admin context for management console
+        // invalid token
       }
     }
 
-    // Default admin context for web management console
-    req.userId = 'usr-admin-01';
-    req.role = 'admin';
-    req.deviceId = 'admin-web-console';
-    next();
+    return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED', message: 'Требуются права администратора.' });
   };
 
   // Mount JWT authenticator globally
@@ -180,21 +169,27 @@ async function startServer() {
   };
 
   const getUserId = (req: any) => {
-    return req.userId || 'usr-demo-01';
+    return req.userId || 'usr-guest';
   };
 
   // ------------------- AUTH API -------------------
   app.post('/api/v1/auth/login', authRateLimiter, (req, res) => {
     const { email, password, deviceName, platform } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Введите email и пароль.' });
+    }
     const deviceId = getDeviceId(req);
-    const result = AuthService.login(email || 'demo@smarttv.com', password || '123456', deviceId, deviceName, platform);
+    const result = AuthService.login(email, password, deviceId, deviceName, platform);
     res.status(result.status).json(result.body);
   });
 
   app.post('/api/v1/auth/register', authRateLimiter, (req, res) => {
     const { email, password, username, deviceName, platform } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'MISSING_FIELDS', message: 'Введите email и пароль для регистрации.' });
+    }
     const deviceId = getDeviceId(req);
-    const result = AuthService.register(email || 'new@smarttv.com', password || '123456', username, deviceId, deviceName, platform);
+    const result = AuthService.register(email, password, username, deviceId, deviceName, platform);
     res.status(result.status).json(result.body);
   });
 
@@ -267,6 +262,30 @@ async function startServer() {
     res.json(payload);
   });
 
+  app.get('/api/v1/catalog/items', async (req, res) => {
+    try {
+      const page = Number(req.query.page) || 1;
+      const limit = Number(req.query.limit) || 50;
+      const type = (req.query.type as string) || 'all';
+      const genre = (req.query.genre as string) || undefined;
+      const search = (req.query.search as string) || undefined;
+      const sortBy = (req.query.sortBy as string) || 'popularity';
+
+      const result = await CatalogService.getCatalogItems({
+        page,
+        limit,
+        type,
+        genre,
+        search,
+        sortBy
+      });
+
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: 'CATALOG_ITEMS_FAILED', message: e.message });
+    }
+  });
+
   app.get('/api/v1/catalog/search', searchRateLimiter, async (req, res) => {
     const q = (req.query.q as string) || '';
     const results = await CatalogService.search(q);
@@ -335,10 +354,26 @@ async function startServer() {
     }
   });
 
+  app.get('/api/v1/metadata/sync-progress', (req, res) => {
+    res.json(MetadataService.getSyncProgress());
+  });
+
+  app.get('/api/v1/metadata/check-apis', async (req, res) => {
+    try {
+      const reports = await MetadataService.checkAllAPIs();
+      res.json({ success: true, reports });
+    } catch (err: any) {
+      res.status(500).json({ error: 'API_CHECK_FAILED', message: err.message });
+    }
+  });
+
   app.post('/api/v1/metadata/auto-populate', requireAdmin, async (req, res) => {
     try {
-      const count = await MetadataService.autoPopulateFromTMDB();
-      res.json({ success: true, added: count });
+      // Trigger background sync task
+      MetadataService.autoPopulateFromTMDB().catch(err => {
+        console.error('Background TMDB sync error:', err);
+      });
+      res.json({ success: true, message: 'Синхронизация запущена в фоновом режиме', initialProgress: MetadataService.getSyncProgress() });
     } catch (err: any) {
       res.status(500).json({ error: 'AUTO_POPULATE_FAILED', message: err.message });
     }

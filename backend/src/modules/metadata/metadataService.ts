@@ -234,10 +234,18 @@ export class TMDBClient {
     }
 
     let director = 'Неизвестно';
+    let directorPhoto: string | undefined = undefined;
+    let directorId: number | string | undefined = undefined;
     const crew_members: any[] = [];
     if (data.credits && data.credits.crew) {
       const directorObj = data.credits.crew.find((c: any) => c.job === 'Director');
-      if (directorObj) director = directorObj.name;
+      if (directorObj) {
+        director = directorObj.name;
+        directorId = directorObj.id;
+        if (directorObj.profile_path) {
+          directorPhoto = this.getImageUrl(directorObj.profile_path, 'w500');
+        }
+      }
       
       data.credits.crew.slice(0, 8).forEach((c: any) => {
         crew_members.push({
@@ -248,6 +256,12 @@ export class TMDBClient {
           profile_path: c.profile_path ? this.getImageUrl(c.profile_path, 'w500') : null
         });
       });
+    } else if (data.created_by && Array.isArray(data.created_by) && data.created_by.length > 0) {
+      director = data.created_by.map((c: any) => c.name).join(', ');
+      directorId = data.created_by[0]?.id;
+      if (data.created_by[0]?.profile_path) {
+        directorPhoto = this.getImageUrl(data.created_by[0].profile_path, 'w500');
+      }
     }
 
     const cast = data.credits && data.credits.cast
@@ -263,6 +277,28 @@ export class TMDBClient {
           order: c.order
         }))
       : [];
+
+    let stills: string[] = [];
+    if (data.images && data.images.backdrops && Array.isArray(data.images.backdrops) && data.images.backdrops.length > 0) {
+      stills = data.images.backdrops.slice(0, 10).map((b: any) => this.getImageUrl(b.file_path, 'w780'));
+    } else if (data.backdrop_path) {
+      stills = [this.getImageUrl(data.backdrop_path, 'w780')];
+    }
+
+    let trailer_url: string | undefined = undefined;
+    if (data.videos && data.videos.results && Array.isArray(data.videos.results)) {
+      const trailerObj = data.videos.results.find((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'));
+      if (trailerObj?.key) {
+        trailer_url = `https://www.youtube.com/embed/${trailerObj.key}?autoplay=1`;
+      }
+    }
+
+    let similar: ContentItem[] = [];
+    if (data.similar && data.similar.results && Array.isArray(data.similar.results)) {
+      similar = data.similar.results.slice(0, 8).map((sim: any) => this.convertToContentItem(sim, type));
+    } else if (data.recommendations && data.recommendations.results && Array.isArray(data.recommendations.results)) {
+      similar = data.recommendations.results.slice(0, 8).map((rec: any) => this.convertToContentItem(rec, type));
+    }
 
     const rawRating = data.vote_average || 7.5;
     const cleanRating = Math.round(rawRating * 10) / 10;
@@ -286,9 +322,14 @@ export class TMDBClient {
       play_count: Math.floor(Math.random() * 8000) + 500,
       genres,
       director,
+      directorPhoto,
+      directorId,
       cast,
       cast_members,
       crew_members,
+      stills: stills.length > 0 ? stills : undefined,
+      trailer_url,
+      similar: similar.length > 0 ? similar : undefined,
     };
   }
 }
@@ -424,7 +465,237 @@ export class TVDBClient {
 /**
  * Unified Metadata Manager Service
  */
+export interface ApiHealthReport {
+  name: string;
+  service: 'TMDB' | 'TVDB' | 'Gemini' | 'TorrServer';
+  status: 'ok' | 'error';
+  pingMs?: number;
+  error?: string;
+  details?: string;
+}
+
+export interface MetadataSyncProgress {
+  isSyncing: boolean;
+  progressPercent: number;
+  currentStep: string;
+  itemsAdded: number;
+  totalCatalogCount: number;
+  error: string | null;
+  lastSyncTimestamp: string | null;
+  apiReports?: ApiHealthReport[];
+}
+
 export class MetadataService {
+  private static syncState: MetadataSyncProgress = {
+    isSyncing: false,
+    progressPercent: 0,
+    currentStep: 'Готов к синхронизации',
+    itemsAdded: 0,
+    totalCatalogCount: 0,
+    error: null,
+    lastSyncTimestamp: null,
+    apiReports: []
+  };
+
+  static getSyncProgress(): MetadataSyncProgress {
+    return {
+      ...this.syncState,
+      totalCatalogCount: dbStore.content.length
+    };
+  }
+
+  /**
+   * Diagnostic check for all external and internal APIs
+   */
+  static async checkAllAPIs(): Promise<ApiHealthReport[]> {
+    const reports: ApiHealthReport[] = [];
+
+    // 1. Check TMDB API
+    const tmdbStart = Date.now();
+    try {
+      const key = TMDBClient.apiKey;
+      if (!key) {
+        reports.push({
+          name: 'TMDB Metadata API (api.themoviedb.org)',
+          service: 'TMDB',
+          status: 'error',
+          error: 'TMDB_API_KEY отсутствует в .env'
+        });
+      } else {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(`https://api.themoviedb.org/3/configuration?api_key=${key}`, { signal: controller.signal });
+        clearTimeout(timeout);
+        const ms = Date.now() - tmdbStart;
+        if (res.ok) {
+          reports.push({
+            name: 'TMDB Metadata API (api.themoviedb.org)',
+            service: 'TMDB',
+            status: 'ok',
+            pingMs: ms
+          });
+        } else {
+          reports.push({
+            name: 'TMDB Metadata API (api.themoviedb.org)',
+            service: 'TMDB',
+            status: 'error',
+            pingMs: ms,
+            error: `HTTP ${res.status} ${res.statusText || 'Unauthorized'} — Ошибка API ключа или лимитов TMDB`
+          });
+        }
+      }
+    } catch (err: any) {
+      const ms = Date.now() - tmdbStart;
+      const msg = err.name === 'AbortError' ? 'Таймаут ответа (3500ms)' : (err.message || 'Ошибка подключения');
+      reports.push({
+        name: 'TMDB Metadata API (api.themoviedb.org)',
+        service: 'TMDB',
+        status: 'error',
+        pingMs: ms,
+        error: msg
+      });
+    }
+
+    // 2. Check TVDB API
+    const tvdbStart = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch('https://api4.thetvdb.com/v4/official/series', { signal: controller.signal }).catch(() => null);
+      clearTimeout(timeout);
+      const ms = Date.now() - tvdbStart;
+      if (res && res.ok) {
+        reports.push({
+          name: 'TVDB V4 Series API (api4.thetvdb.com)',
+          service: 'TVDB',
+          status: 'ok',
+          pingMs: ms
+        });
+      } else if (res) {
+        reports.push({
+          name: 'TVDB V4 Series API (api4.thetvdb.com)',
+          service: 'TVDB',
+          status: 'error',
+          pingMs: ms,
+          error: `HTTP ${res.status} — Не настроен TVDB_API_KEY / Токен недействителен`
+        });
+      } else {
+        reports.push({
+          name: 'TVDB V4 Series API (api4.thetvdb.com)',
+          service: 'TVDB',
+          status: 'error',
+          pingMs: ms,
+          error: 'Сервер api4.thetvdb.com не ответил (Таймаут / Сеть)'
+        });
+      }
+    } catch (err: any) {
+      const ms = Date.now() - tvdbStart;
+      reports.push({
+        name: 'TVDB V4 Series API (api4.thetvdb.com)',
+        service: 'TVDB',
+        status: 'error',
+        pingMs: ms,
+        error: err.name === 'AbortError' ? 'Таймаут соединения (3500ms)' : (err.message || 'Ошибка сети')
+      });
+    }
+
+    // 3. Check Gemini AI API
+    const geminiStart = Date.now();
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) {
+      reports.push({
+        name: 'Google Gemini AI API (generativelanguage.googleapis.com)',
+        service: 'Gemini',
+        status: 'error',
+        error: 'GEMINI_API_KEY не установлен в .env'
+      });
+    } else {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiKey}`, { signal: controller.signal });
+        clearTimeout(timeout);
+        const ms = Date.now() - geminiStart;
+        if (res.ok) {
+          reports.push({
+            name: 'Google Gemini AI API (generativelanguage.googleapis.com)',
+            service: 'Gemini',
+            status: 'ok',
+            pingMs: ms
+          });
+        } else {
+          reports.push({
+            name: 'Google Gemini AI API (generativelanguage.googleapis.com)',
+            service: 'Gemini',
+            status: 'error',
+            pingMs: ms,
+            error: `HTTP ${res.status} — Недействительный GEMINI_API_KEY или лимит запросов`
+          });
+        }
+      } catch (err: any) {
+        const ms = Date.now() - geminiStart;
+        reports.push({
+          name: 'Google Gemini AI API (generativelanguage.googleapis.com)',
+          service: 'Gemini',
+          status: 'error',
+          pingMs: ms,
+          error: err.name === 'AbortError' ? 'Таймаут соединения (3500ms)' : (err.message || 'Ошибка сети')
+        });
+      }
+    }
+
+    // 4. Check TorrServer Cluster Nodes
+    if (dbStore.nodes && dbStore.nodes.length > 0) {
+      for (const node of dbStore.nodes) {
+        const nodeStart = Date.now();
+        const targetUrl = node.hostname.startsWith('http') ? node.hostname : `http://${node.hostname}`;
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 2500);
+          const res = await fetch(`${targetUrl}/echo`, { signal: controller.signal }).catch(async () => {
+            return await fetch(`${targetUrl}/`, { signal: controller.signal }).catch(() => null);
+          });
+          clearTimeout(timeout);
+          const ms = Date.now() - nodeStart;
+          if (res && (res.ok || res.status < 500)) {
+            node.isOnline = true;
+            reports.push({
+              name: `TorrServer Нода ${node.nodeId} (${(node as any).location || node.region || 'Local Node'})`,
+              service: 'TorrServer',
+              status: 'ok',
+              pingMs: ms,
+              details: targetUrl
+            });
+          } else {
+            node.isOnline = false;
+            const errMsg = res ? `HTTP ${res.status}` : 'Нет ответа (ECONNREFUSED / Офлайн)';
+            reports.push({
+              name: `TorrServer Нода ${node.nodeId} (${(node as any).location || node.region || 'Edge Node'})`,
+              service: 'TorrServer',
+              status: 'error',
+              pingMs: ms,
+              error: errMsg,
+              details: targetUrl
+            });
+          }
+        } catch (err: any) {
+          node.isOnline = false;
+          const errMsg = err.name === 'AbortError' ? 'Таймаут соединения (2500ms)' : (err.message || 'ECONNREFUSED / Сервер недоступен');
+          reports.push({
+            name: `TorrServer Нода ${node.nodeId} (${(node as any).location || node.region || 'Edge Node'})`,
+            service: 'TorrServer',
+            status: 'error',
+            pingMs: -1,
+            error: errMsg,
+            details: targetUrl
+          });
+        }
+      }
+    }
+
+    return reports;
+  }
+
   /**
    * Test API connections
    */
@@ -439,6 +710,7 @@ export class MetadataService {
         configured: Boolean(process.env.TVDB_API_KEY),
         key_preview: process.env.TVDB_API_KEY ? `${process.env.TVDB_API_KEY.substring(0, 4)}...` : null,
       },
+      syncState: this.getSyncProgress()
     };
   }
 
@@ -612,9 +884,39 @@ export class MetadataService {
    * Automatically fetch popular and trending filmography from TMDB to populate catalog
    */
   static async autoPopulateFromTMDB(): Promise<number> {
+    if (this.syncState.isSyncing) {
+      console.log('[TMDB Auto-Sync] Sync already in progress...');
+      return 0;
+    }
+
     let addedCount = 0;
+    this.syncState = {
+      isSyncing: true,
+      progressPercent: 5,
+      currentStep: 'Проверка и диагностика работоспособности всех API...',
+      itemsAdded: 0,
+      totalCatalogCount: dbStore.content.length,
+      error: null,
+      lastSyncTimestamp: new Date().toISOString(),
+      apiReports: []
+    };
+
     try {
+      // Run diagnostic health check on TMDB, TVDB, Gemini, TorrServer
+      const apiReports = await this.checkAllAPIs();
+      this.syncState.apiReports = apiReports;
+
+      const failingApis = apiReports.filter(r => r.status === 'error');
+      if (failingApis.length > 0) {
+        console.warn(`[API Diagnostics] Found ${failingApis.length} failing API(s):`, failingApis.map(f => `${f.name}: ${f.error}`));
+      }
+
       console.log('[TMDB Auto-Sync] Starting global catalog prefetch from TMDB API...');
+
+      this.syncState.progressPercent = 20;
+      this.syncState.currentStep = failingApis.length > 0
+        ? `Загрузка каталога (Обнаружено неработающих API: ${failingApis.length})...`
+        : 'Загрузка трендов дня, новинок проката и популярного кино...';
 
       const [
         trendingDay,
@@ -644,6 +946,9 @@ export class MetadataService {
         TMDBClient.discover('movie', 16, 'vote_average.desc', 1).catch(() => ({ results: [] })),
       ]);
 
+      this.syncState.progressPercent = 60;
+      this.syncState.currentStep = 'Обработка и связывание метаданных, постеров и жанров...';
+
       const itemsToProcess: Array<{ raw: any; type: 'movie' | 'series' }> = [];
 
       const addGroup = (results: any[], defaultType: 'movie' | 'series') => {
@@ -669,8 +974,11 @@ export class MetadataService {
       addGroup(animeMovies.results, 'movie');
 
       const seenIds = new Set<string>();
+      const totalCount = itemsToProcess.length || 1;
+      let processed = 0;
 
       for (const item of itemsToProcess) {
+        processed++;
         if (!item.raw || (!item.raw.title && !item.raw.name)) continue;
         const key = `${item.type}-${item.raw.id}`;
         if (seenIds.has(key)) continue;
@@ -695,11 +1003,42 @@ export class MetadataService {
           dbStore.content.push(formatted);
           addedCount++;
         }
+
+        const pct = Math.min(99, 60 + Math.round((processed / totalCount) * 39));
+        this.syncState.progressPercent = pct;
+        this.syncState.itemsAdded = addedCount;
+        this.syncState.currentStep = `Сохранение в базу: "${formatted.title}" (${processed}/${totalCount})`;
       }
 
-      console.log(`[TMDB Auto-Sync] Successfully populated and updated catalog. Total items in DB: ${dbStore.content.length} (New added: ${addedCount})`);
-    } catch (err) {
+      const failingApisCount = (this.syncState.apiReports || []).filter(r => r.status === 'error').length;
+      const statusSuffix = failingApisCount > 0
+        ? ` (Обнаружены проблемы с ${failingApisCount} API)`
+        : '';
+
+      this.syncState = {
+        isSyncing: false,
+        progressPercent: 100,
+        currentStep: `Синхронизация завершена! Добавлено ${addedCount} элементов${statusSuffix}. Всего в каталоге: ${dbStore.content.length}`,
+        itemsAdded: addedCount,
+        totalCatalogCount: dbStore.content.length,
+        error: failingApisCount > 0 ? `Недоступно API: ${failingApisCount}. См. диагностические карточки ниже.` : null,
+        lastSyncTimestamp: new Date().toISOString(),
+        apiReports: this.syncState.apiReports
+      };
+
+      console.log(`[TMDB Auto-Sync] Successfully populated catalog. DB total: ${dbStore.content.length}`);
+    } catch (err: any) {
       console.error('[TMDB Auto-Sync] Error auto-populating from TMDB:', err);
+      this.syncState = {
+        isSyncing: false,
+        progressPercent: 0,
+        currentStep: 'Ошибка при синхронизации TMDB',
+        itemsAdded: addedCount,
+        totalCatalogCount: dbStore.content.length,
+        error: err.message || 'Ошибка запроса к TMDB',
+        lastSyncTimestamp: new Date().toISOString(),
+        apiReports: this.syncState.apiReports
+      };
     }
     return addedCount;
   }

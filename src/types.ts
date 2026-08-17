@@ -55,16 +55,17 @@ export interface ServerNode {
   location: string;
   countryCode: string;
   status: 'online' | 'warning' | 'offline';
-  cpuUsage: number;
-  ramUsage: number;
-  diskUsage: number;
-  bandwidthGbps: number;
+  cpuUsage: number | null;
+  ramUsage: number | null;
+  diskUsage: number | null;
+  bandwidthGbps: number | null;
   activeStreams: number;
-  pingMs: number;
+  pingMs: number | null;
   uptimeHours: number;
   errorCount24h: number;
   version: string;
   lastHealthCheck: string;
+  lastError?: string;
 }
 
 export interface SystemLogEntry {
@@ -183,9 +184,14 @@ export interface ContentItem {
   country?: string;
   countries?: string[];
   director?: string;
+  directorPhoto?: string;
+  directorId?: number | string;
   cast?: string[];
   cast_members?: CastMember[];
   crew_members?: CrewMember[];
+  stills?: string[];
+  trailer_url?: string;
+  similar?: ContentItem[];
   stream_url?: string;
   subtitles?: SubtitleTrack[];
 }

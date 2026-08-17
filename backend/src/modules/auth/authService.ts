@@ -7,7 +7,7 @@ import { User, Device, AuthResponse } from '../../../../src/types';
 export class AuthService {
   private static passwordHashes = new Map<string, string>([
     ['admin@smarttv.com', bcryptjs.hashSync('admin123', 10)],
-    ['demo@smarttv.com', bcryptjs.hashSync('123456', 10)]
+    ['admin', bcryptjs.hashSync('admin123', 10)]
   ]);
 
   static verifyDeviceLimit(userId: string, deviceId: string, deviceName?: string, platform?: any): { allowed: boolean; devicesCount: number } {
@@ -75,11 +75,14 @@ export class AuthService {
   }
 
   static login(email: string, pass: string, deviceId: string, deviceName?: string, platform?: any): { status: number; body: any } {
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = dbStore.users.find(u => u.email.toLowerCase() === normalizedEmail);
+    const query = email.toLowerCase().trim();
+    const user = dbStore.users.find(u => 
+      u.email.toLowerCase() === query || 
+      u.username.toLowerCase() === query ||
+      (query === 'admin' && u.role === 'admin')
+    );
     if (!user) {
-      // Auto-create with the provided credentials for high usability
-      return this.register(normalizedEmail, pass || '123456', undefined, deviceId, deviceName, platform);
+      return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Пользователь не найден. Зарегистрируйтесь.' } };
     }
 
     if (user.is_blocked) {
@@ -87,10 +90,9 @@ export class AuthService {
     }
 
     // Verify hashed password
-    const hash = this.passwordHashes.get(normalizedEmail) || bcryptjs.hashSync('123456', 10);
-    const passMatches = bcryptjs.compareSync(pass || '123456', hash);
-    if (!passMatches) {
-      return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неверный email или пароль.' } };
+    const hash = this.passwordHashes.get(query) || this.passwordHashes.get(user.email.toLowerCase());
+    if (!hash || !bcryptjs.compareSync(pass, hash)) {
+      return { status: 401, body: { error: 'INVALID_CREDENTIALS', message: 'Неверный логин или пароль.' } };
     }
 
     return this.processAuthForUser(user, deviceId, deviceName, platform);

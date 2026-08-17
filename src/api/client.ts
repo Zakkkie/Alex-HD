@@ -7,6 +7,7 @@ import {
   WatchHistoryItem,
 } from '../types';
 import { getFallbackHomePayload, fallbackContent } from '../data/fallbackCatalog';
+import { LocalStorageCache } from '../utils/localStorageCache';
 
 const getApiBase = (): string => {
   const envUrl = (import.meta as any).env?.VITE_API_URL;
@@ -33,11 +34,17 @@ const getDeviceId = (): string => {
   return devId;
 };
 
-const defaultHeaders = () => ({
-  'Content-Type': 'application/json',
-  'X-Device-Id': getDeviceId(),
-  'Authorization': `Bearer ${localStorage.getItem('tv_access_token') || 'demo-admin-token'}`
-});
+const defaultHeaders = () => {
+  const token = localStorage.getItem('tv_access_token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Device-Id': getDeviceId()
+  };
+  if (token && token.trim() !== '') {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
 
 async function safeJson(res: Response, fallbackValue: any = null): Promise<any> {
   const text = await res.text().catch(() => '');
@@ -65,128 +72,90 @@ export const api = {
   getDeviceId,
 
   async login(email?: string, password?: string): Promise<AuthResponse> {
-    try {
-      const res = await fetch(getUrl('/api/v1/auth/login'), {
-        method: 'POST',
-        headers: defaultHeaders(),
-        body: JSON.stringify({
-          email: email || 'demo@alexhd.com',
-          password: password || '123456',
-          deviceName: 'Alex HD (Media Station X)',
-          platform: 'tizen'
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || 'Authentication failed');
-      }
-      if (data.accessToken) {
-        localStorage.setItem('tv_access_token', data.accessToken);
-      }
-      return data;
-    } catch (e) {
-      return {
-        accessToken: 'demo-fallback-token',
-        refreshToken: 'demo-refresh-token',
-        devicesCount: 1,
-        user: {
-          id: 'usr-demo-01',
-          username: 'demo_user',
-          displayName: 'Демо Пользователь',
-          email: email || 'demo@alexhd.com',
-          role: 'user',
-          is_blocked: false,
-          plan: 'standard',
-          subscription_expires_at: null,
-          created_at: new Date().toISOString(),
-          connected_devices_count: 1
-        }
-      };
+    const res = await fetch(getUrl('/api/v1/auth/login'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({
+        email,
+        password,
+        deviceName: 'Alex HD (Media Station X)',
+        platform: 'tizen'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Ошибка входа');
     }
+    if (data.accessToken) {
+      localStorage.setItem('tv_access_token', data.accessToken);
+    }
+    return data;
+  },
+
+  async register(email?: string, password?: string, username?: string): Promise<AuthResponse> {
+    const res = await fetch(getUrl('/api/v1/auth/register'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({
+        email,
+        password,
+        username,
+        deviceName: 'Alex HD (Media Station X)',
+        platform: 'tizen'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Ошибка регистрации');
+    }
+    if (data.accessToken) {
+      localStorage.setItem('tv_access_token', data.accessToken);
+    }
+    return data;
   },
 
   async loginWithGoogle(profile?: { email?: string; name?: string; sub?: string }): Promise<AuthResponse> {
-    try {
-      const res = await fetch(getUrl('/api/v1/auth/google'), {
-        method: 'POST',
-        headers: defaultHeaders(),
-        body: JSON.stringify({
-          googleId: profile?.sub || `g_${Date.now()}`,
-          email: profile?.email || 'google_user@gmail.com',
-          displayName: profile?.name || 'Alex HD Google User',
-          deviceName: 'Alex HD (Google Auth)',
-          platform: 'tizen'
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || 'Google Sign-In failed');
-      }
-      if (data.accessToken) {
-        localStorage.setItem('tv_access_token', data.accessToken);
-      }
-      return data;
-    } catch (e) {
-      return {
-        accessToken: 'demo-google-token',
-        refreshToken: 'demo-google-refresh-token',
-        devicesCount: 1,
-        user: {
-          id: 'usr-google-01',
-          username: 'google_user',
-          displayName: profile?.name || 'Alex HD Google User',
-          email: profile?.email || 'google_user@gmail.com',
-          role: 'user',
-          is_blocked: false,
-          plan: 'standard',
-          subscription_expires_at: null,
-          created_at: new Date().toISOString(),
-          connected_devices_count: 1
-        }
-      };
+    const res = await fetch(getUrl('/api/v1/auth/google'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({
+        googleId: profile?.sub,
+        email: profile?.email,
+        displayName: profile?.name,
+        deviceName: 'Alex HD (Google Auth)',
+        platform: 'tizen'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Ошибка входа через Google');
     }
+    if (data.accessToken) {
+      localStorage.setItem('tv_access_token', data.accessToken);
+    }
+    return data;
   },
 
   async loginWithApple(profile?: { email?: string; fullName?: string; sub?: string }): Promise<AuthResponse> {
-    try {
-      const res = await fetch(getUrl('/api/v1/auth/apple'), {
-        method: 'POST',
-        headers: defaultHeaders(),
-        body: JSON.stringify({
-          appleSub: profile?.sub || `appl_${Date.now()}`,
-          email: profile?.email,
-          fullName: profile?.fullName || 'Apple ID User',
-          deviceName: 'Alex HD (Apple ID)',
-          platform: 'tizen'
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || 'Apple ID Sign-In failed');
-      }
-      if (data.accessToken) {
-        localStorage.setItem('tv_access_token', data.accessToken);
-      }
-      return data;
-    } catch (e) {
-      return {
-        accessToken: 'demo-apple-token',
-        refreshToken: 'demo-apple-refresh-token',
-        devicesCount: 1,
-        user: {
-          id: 'usr-apple-01',
-          username: 'apple_user',
-          displayName: profile?.fullName || 'Apple ID User',
-          email: profile?.email || 'apple_user@icloud.com',
-          role: 'user',
-          is_blocked: false,
-          plan: 'standard',
-          subscription_expires_at: null,
-          created_at: new Date().toISOString(),
-          connected_devices_count: 1
-        }
-      };
+    const res = await fetch(getUrl('/api/v1/auth/apple'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({
+        appleSub: profile?.sub,
+        email: profile?.email,
+        fullName: profile?.fullName,
+        deviceName: 'Alex HD (Apple ID)',
+        platform: 'tizen'
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Ошибка входа через Apple');
     }
+    if (data.accessToken) {
+      localStorage.setItem('tv_access_token', data.accessToken);
+    }
+    return data;
   },
 
   async testTorrServer(url: string): Promise<any> {
@@ -248,61 +217,164 @@ export const api = {
     return res.json();
   },
 
-  async getHome(): Promise<HomePayload> {
-    try {
-      const res = await fetch(getUrl('/api/v1/catalog/home'), { headers: defaultHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.hero && data.trending24h && data.trending24h.length > 0) {
-          return data;
+  async getHome(onBackgroundUpdate?: (freshData: HomePayload) => void): Promise<HomePayload> {
+    const cached = LocalStorageCache.get<HomePayload>('catalog_home');
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(getUrl('/api/v1/catalog/home'), { headers: defaultHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.hero && data.trending24h && data.trending24h.length > 0) {
+            LocalStorageCache.set('catalog_home', data);
+            if (onBackgroundUpdate) {
+              onBackgroundUpdate(data);
+            }
+            return data;
+          }
         }
+      } catch (err) {
+        console.warn('Backend getHome background refresh failed:', err);
       }
-    } catch (err) {
-      console.warn('Backend getHome failed, using rich TMDB fallback catalog', err);
+      return null;
+    })();
+
+    if (cached && cached.hero && cached.trending24h && cached.trending24h.length > 0) {
+      return cached;
     }
+
+    const fresh = await fetchPromise;
+    if (fresh) return fresh;
+
     return getFallbackHomePayload();
   },
 
-  async search(query: string): Promise<ContentItem[]> {
+  async getCatalogItems(params: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    genre?: string;
+    search?: string;
+    sortBy?: string;
+  } = {}): Promise<{
+    items: ContentItem[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    hasMore: boolean;
+  }> {
     try {
-      const res = await fetch(getUrl(`/api/v1/catalog/search?q=${encodeURIComponent(query)}`), { headers: defaultHeaders() });
-      if (!res.ok) throw new Error('Search failed');
-      return await res.json();
+      const queryParams = new URLSearchParams();
+      if (params.page) queryParams.set('page', params.page.toString());
+      if (params.limit) queryParams.set('limit', params.limit.toString());
+      if (params.type) queryParams.set('type', params.type);
+      if (params.genre) queryParams.set('genre', params.genre);
+      if (params.search) queryParams.set('search', params.search);
+      if (params.sortBy) queryParams.set('sortBy', params.sortBy);
+
+      const res = await fetch(getUrl(`/api/v1/catalog/items?${queryParams.toString()}`), {
+        headers: defaultHeaders()
+      });
+      if (res.ok) {
+        return await res.json();
+      }
     } catch (e) {
-      const q = query.toLowerCase();
-      return fallbackContent.filter(c => 
-        c.title.toLowerCase().includes(q) || 
-        c.original_title.toLowerCase().includes(q) ||
-        c.genres.some(g => g.toLowerCase().includes(q))
-      );
+      console.warn('getCatalogItems failed:', e);
     }
+    return { items: [], total: 0, page: 1, limit: 50, totalPages: 1, hasMore: false };
+  },
+
+  async search(query: string, onBackgroundUpdate?: (freshData: ContentItem[]) => void): Promise<ContentItem[]> {
+    const cacheKey = `search_${query.toLowerCase().trim()}`;
+    const cached = LocalStorageCache.get<ContentItem[]>(cacheKey);
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(getUrl(`/api/v1/catalog/search?q=${encodeURIComponent(query)}`), { headers: defaultHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          LocalStorageCache.set(cacheKey, data);
+          if (onBackgroundUpdate) onBackgroundUpdate(data);
+          return data;
+        }
+      } catch (e) {
+        console.warn('Background search refresh failed:', e);
+      }
+      return null;
+    })();
+
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      return cached;
+    }
+
+    const fresh = await fetchPromise;
+    if (fresh) return fresh;
+
+    const q = query.toLowerCase();
+    return fallbackContent.filter(c => 
+      c.title.toLowerCase().includes(q) || 
+      c.original_title.toLowerCase().includes(q) ||
+      c.genres.some(g => g.toLowerCase().includes(q))
+    );
   },
 
   async aiSearch(query: string): Promise<ContentItem[]> {
+    const cacheKey = `aisearch_${query.toLowerCase().trim()}`;
+    const cached = LocalStorageCache.get<ContentItem[]>(cacheKey);
+
     try {
       const res = await fetch(getUrl(`/api/v1/catalog/ai-search?q=${encodeURIComponent(query)}`), { headers: defaultHeaders() });
-      if (!res.ok) throw new Error('AI Search failed');
-      return await res.json();
+      if (res.ok) {
+        const data = await res.json();
+        LocalStorageCache.set(cacheKey, data);
+        return data;
+      }
     } catch (e) {
-      const q = query.toLowerCase();
-      return fallbackContent.filter(c => 
-        c.title.toLowerCase().includes(q) || 
-        c.genres.some(g => g.toLowerCase().includes(q)) ||
-        c.overview.toLowerCase().includes(q)
-      );
+      console.warn('AI search network error, fallback to cache:', e);
     }
+
+    if (cached) return cached;
+
+    const q = query.toLowerCase();
+    return fallbackContent.filter(c => 
+      c.title.toLowerCase().includes(q) || 
+      c.genres.some(g => g.toLowerCase().includes(q)) ||
+      c.overview.toLowerCase().includes(q)
+    );
   },
 
-  async getContentDetail(id: string): Promise<any> {
-    try {
-      const res = await fetch(getUrl(`/api/v1/catalog/content/${id}`), { headers: defaultHeaders() });
-      if (!res.ok) throw new Error('Content not found');
-      return await res.json();
-    } catch (e) {
-      const item = fallbackContent.find(c => c.id === id || String(c.tmdb_id) === String(id));
-      if (item) return item;
-      return fallbackContent[0];
+  async getContentDetail(id: string, onBackgroundUpdate?: (freshData: any) => void): Promise<any> {
+    const cacheKey = `content_${id}`;
+    const cached = LocalStorageCache.get<any>(cacheKey);
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(getUrl(`/api/v1/catalog/content/${id}`), { headers: defaultHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.id) {
+            LocalStorageCache.set(cacheKey, data);
+            if (onBackgroundUpdate) onBackgroundUpdate(data);
+            return data;
+          }
+        }
+      } catch (e) {
+        console.warn('Background content detail refresh failed:', e);
+      }
+      return null;
+    })();
+
+    if (cached && cached.id) {
+      return cached;
     }
+
+    const fresh = await fetchPromise;
+    if (fresh) return fresh;
+
+    const item = fallbackContent.find(c => c.id === id || String(c.tmdb_id) === String(id));
+    if (item) return item;
+    return fallbackContent[0];
   },
 
   async toggleFavorite(id: string): Promise<{ isFavorite: boolean }> {
@@ -358,7 +430,7 @@ export const api = {
     } catch (e) {
       return {
         id: 'hist-fallback',
-        user_id: 'usr-demo-01',
+        user_id: 'usr-guest',
         content_id: payload.contentId,
         season_id: payload.seasonId,
         episode_id: payload.episodeId,
@@ -623,14 +695,83 @@ export const api = {
     return safeJson(res, { success: true, item: contentData });
   },
 
-  async getMetadataStatus(): Promise<{ tmdb: { configured: boolean; key_preview: string | null }; tvdb: { configured: boolean; key_preview: string | null } }> {
+  async getMetadataStatus(): Promise<{
+    tmdb: { configured: boolean; key_preview: string | null };
+    tvdb: { configured: boolean; key_preview: string | null };
+    syncState?: {
+      isSyncing: boolean;
+      progressPercent: number;
+      currentStep: string;
+      itemsAdded: number;
+      totalCatalogCount: number;
+      error: string | null;
+      lastSyncTimestamp: string | null;
+    };
+  }> {
     const res = await fetch(getUrl('/api/v1/metadata/status'), { headers: defaultHeaders() });
     return safeJson(res, { tmdb: { configured: false, key_preview: null }, tvdb: { configured: false, key_preview: null } });
   },
 
-  async getPerson(idOrName: string | number): Promise<any> {
-    const res = await fetch(getUrl(`/api/v1/metadata/person/${encodeURIComponent(idOrName)}`), { headers: defaultHeaders() });
-    return safeJson(res, null);
+  async getMetadataSyncProgress(): Promise<{
+    isSyncing: boolean;
+    progressPercent: number;
+    currentStep: string;
+    itemsAdded: number;
+    totalCatalogCount: number;
+    error: string | null;
+    lastSyncTimestamp: string | null;
+    apiReports?: Array<{
+      name: string;
+      service: string;
+      status: 'ok' | 'error';
+      pingMs?: number;
+      error?: string;
+      details?: string;
+    }>;
+  }> {
+    const res = await fetch(getUrl('/api/v1/metadata/sync-progress'), { headers: defaultHeaders() });
+    return safeJson(res, {
+      isSyncing: false,
+      progressPercent: 0,
+      currentStep: 'Готов к синхронизации',
+      itemsAdded: 0,
+      totalCatalogCount: 0,
+      error: null,
+      lastSyncTimestamp: null,
+      apiReports: []
+    });
+  },
+
+  async checkAPIs(): Promise<{ success: boolean; reports: any[] }> {
+    const res = await fetch(getUrl('/api/v1/metadata/check-apis'), { headers: defaultHeaders() });
+    return safeJson(res, { success: false, reports: [] });
+  },
+
+  async getPerson(idOrName: string | number, onBackgroundUpdate?: (freshData: any) => void): Promise<any> {
+    const cacheKey = `person_${encodeURIComponent(idOrName)}`;
+    const cached = LocalStorageCache.get<any>(cacheKey);
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(getUrl(`/api/v1/metadata/person/${encodeURIComponent(idOrName)}`), { headers: defaultHeaders() });
+        const data = await safeJson(res, null);
+        if (data && (data.name || data.id)) {
+          LocalStorageCache.set(cacheKey, data);
+          if (onBackgroundUpdate) onBackgroundUpdate(data);
+          return data;
+        }
+      } catch (e) {
+        console.warn('Background person fetch failed:', e);
+      }
+      return null;
+    })();
+
+    if (cached && (cached.name || cached.id)) {
+      return cached;
+    }
+
+    const fresh = await fetchPromise;
+    return fresh;
   },
 
   async autoPopulateCatalog(): Promise<{ success: boolean; added: number }> {

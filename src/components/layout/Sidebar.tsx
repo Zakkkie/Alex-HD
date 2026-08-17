@@ -12,7 +12,9 @@ import {
   Shield,
   Pin,
   Menu,
-  X
+  X,
+  Clapperboard,
+  Sparkles
 } from 'lucide-react';
 import { useTVNavigation } from '../../navigation/useTVNavigation';
 import { useSpatialNavigation } from '../../navigation/SpatialNavigationContext';
@@ -279,6 +281,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
               isExpanded={isExpanded}
               onSelect={() => handleItemSelect('search')}
               upTarget="sidebar-home"
+              downTarget="sidebar-movies"
+            />
+            <SidebarItem
+              id="sidebar-movies"
+              label="Фильмы"
+              icon={Film}
+              isActive={effectiveTab === 'movies'}
+              isExpanded={isExpanded}
+              onSelect={() => handleItemSelect('movies')}
+              upTarget="sidebar-search"
+              downTarget="sidebar-series"
+            />
+            <SidebarItem
+              id="sidebar-series"
+              label="Сериалы"
+              icon={Clapperboard}
+              isActive={effectiveTab === 'series'}
+              isExpanded={isExpanded}
+              onSelect={() => handleItemSelect('series')}
+              upTarget="sidebar-movies"
+              downTarget="sidebar-anime"
+            />
+            <SidebarItem
+              id="sidebar-anime"
+              label="Аниме"
+              icon={Sparkles}
+              isActive={effectiveTab === 'anime'}
+              isExpanded={isExpanded}
+              onSelect={() => handleItemSelect('anime')}
+              upTarget="sidebar-series"
               downTarget="sidebar-trending"
             />
             <SidebarItem
@@ -288,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               isActive={effectiveTab === 'trending'}
               isExpanded={isExpanded}
               onSelect={() => handleItemSelect('trending')}
-              upTarget="sidebar-search"
+              upTarget="sidebar-anime"
               downTarget="sidebar-collections"
             />
             <SidebarItem

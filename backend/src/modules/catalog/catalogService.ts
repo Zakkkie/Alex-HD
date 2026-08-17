@@ -1,6 +1,6 @@
 import { dbStore } from '../../db/store';
 import { HomePayload, ContentItem, Collection, WatchHistoryItem, Season, Episode } from '../../../../src/types';
-import { TMDBClient } from '../metadata/metadataService';
+import { TMDBClient, MetadataService } from '../metadata/metadataService';
 
 export class CatalogService {
   static getHomePayload(userId: string): HomePayload {
@@ -64,6 +64,76 @@ export class CatalogService {
     };
   }
 
+  static async getCatalogItems(opts: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    genre?: string;
+    search?: string;
+    sortBy?: string;
+  }) {
+    const page = Math.max(1, Number(opts.page) || 1);
+    const limit = Math.max(10, Math.min(100, Number(opts.limit) || 50));
+    const type = opts.type || 'all';
+
+    if (dbStore.content.length < 50) {
+      await MetadataService.autoPopulateFromTMDB().catch(() => {});
+    }
+
+    let items = dbStore.content.filter(c => c.is_published);
+
+    if (type === 'movie' || type === 'movies') {
+      items = items.filter(c => c.type === 'movie');
+    } else if (type === 'series' || type === 'tv') {
+      items = items.filter(c => c.type === 'series');
+    } else if (type === 'anime') {
+      items = items.filter(c => c.genres?.some(g => g.toLowerCase().includes('аниме') || g.toLowerCase().includes('мультфильм')));
+    } else if (type === '4k') {
+      items = items.filter(c => c.is_4k);
+    } else if (type === 'new') {
+      items = [...items].sort((a, b) => b.release_year - a.release_year);
+    } else if (type === 'trending') {
+      items = [...items].sort((a, b) => b.play_count - a.play_count);
+    }
+
+    if (opts.genre && opts.genre !== 'all') {
+      const gLower = opts.genre.toLowerCase();
+      items = items.filter(c => c.genres?.some(g => g.toLowerCase().includes(gLower)));
+    }
+
+    if (opts.search && opts.search.trim()) {
+      const sLower = opts.search.toLowerCase().trim();
+      items = items.filter(c =>
+        c.title.toLowerCase().includes(sLower) ||
+        (c.original_title && c.original_title.toLowerCase().includes(sLower)) ||
+        (c.overview && c.overview.toLowerCase().includes(sLower))
+      );
+    }
+
+    if (opts.sortBy === 'rating') {
+      items = [...items].sort((a, b) => b.rating_imdb - a.rating_imdb);
+    } else if (opts.sortBy === 'year') {
+      items = [...items].sort((a, b) => b.release_year - a.release_year);
+    } else if (opts.sortBy === 'popularity') {
+      items = [...items].sort((a, b) => (b.play_count + b.rating_imdb * 1000) - (a.play_count + a.rating_imdb * 1000));
+    }
+
+    const total = items.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const startIndex = (page - 1) * limit;
+    const paginatedItems = items.slice(startIndex, startIndex + limit);
+    const hasMore = page < totalPages;
+
+    return {
+      items: paginatedItems,
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore
+    };
+  }
+
   static async getContentDetail(id: string, userId?: string) {
     let item = dbStore.content.find(c => c.id === id || (c.tmdb_id && String(c.tmdb_id) === String(id)));
 
@@ -104,8 +174,8 @@ export class CatalogService {
 
     if (!item) return null;
 
-    // Check if we need on-demand lazy enrichment of cast/crew details from TMDB
-    const needsDetailHydration = item.tmdb_id && (!item.cast_members || item.cast_members.length === 0 || !item.crew_members || item.crew_members.length === 0);
+    // Check if we need on-demand lazy enrichment of cast/crew/stills details from TMDB
+    const needsDetailHydration = item.tmdb_id && (!item.cast_members || item.cast_members.length === 0 || !item.stills || item.stills.length === 0);
     if (needsDetailHydration) {
       try {
         if (item.type === 'movie') {
@@ -119,9 +189,14 @@ export class CatalogService {
               genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
               overview: enriched.overview || dbStore.content[idx].overview,
               director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
+              directorPhoto: enriched.directorPhoto || dbStore.content[idx].directorPhoto,
+              directorId: enriched.directorId || dbStore.content[idx].directorId,
               cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
               cast_members: enriched.cast_members,
-              crew_members: enriched.crew_members
+              crew_members: enriched.crew_members,
+              stills: enriched.stills || dbStore.content[idx].stills,
+              trailer_url: enriched.trailer_url || dbStore.content[idx].trailer_url,
+              similar: enriched.similar || dbStore.content[idx].similar
             };
             item = dbStore.content[idx];
           }
@@ -136,9 +211,14 @@ export class CatalogService {
               genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
               overview: enriched.overview || dbStore.content[idx].overview,
               director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
+              directorPhoto: enriched.directorPhoto || dbStore.content[idx].directorPhoto,
+              directorId: enriched.directorId || dbStore.content[idx].directorId,
               cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
               cast_members: enriched.cast_members,
-              crew_members: enriched.crew_members
+              crew_members: enriched.crew_members,
+              stills: enriched.stills || dbStore.content[idx].stills,
+              trailer_url: enriched.trailer_url || dbStore.content[idx].trailer_url,
+              similar: enriched.similar || dbStore.content[idx].similar
             };
             item = dbStore.content[idx];
           }

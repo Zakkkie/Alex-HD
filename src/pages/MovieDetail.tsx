@@ -20,6 +20,9 @@ interface MovieDetailProps {
 }
 
 const getStillsForContent = (item: any) => {
+  if (item.stills && Array.isArray(item.stills) && item.stills.length > 0) {
+    return item.stills;
+  }
   const defaultStills = [
     "https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=600&q=80",
     "https://images.unsplash.com/photo-1478720143022-9099477e643b?auto=format&fit=crop&w=600&q=80",
@@ -129,22 +132,34 @@ const getCastForContent = (item: any) => {
 };
 
 export const MovieDetail: React.FC<MovieDetailProps> = ({
-  content,
+  content: initialContent,
   onPlay,
   onBack,
   onToggleFavorite,
   onToggleWatchlist,
   onSelectContent
 }) => {
+  const [content, setFullContent] = useState<ContentItem>(initialContent);
   const [showTrailer, setShowTrailer] = useState(false);
   const [expandedStill, setExpandedStill] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<PersonDetails | null>(null);
   const [isPersonLoading, setIsPersonLoading] = useState(false);
   const [userRating, setUserRating] = useState<number | null>(() => {
-    const saved = localStorage.getItem(`user_rating_${content.id}`);
+    const saved = localStorage.getItem(`user_rating_${initialContent.id}`);
     return saved ? Number(saved) : null;
   });
   const [showRatingModal, setShowRatingModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    setFullContent(initialContent);
+    api.getContentDetail(initialContent.id).then((enriched) => {
+      if (enriched) {
+        setFullContent((prev) => ({ ...prev, ...enriched }));
+      }
+    }).catch(err => {
+      console.warn('Movie detail hydration warning:', err);
+    });
+  }, [initialContent.id]);
 
   useEffect(() => {
     if (!showTrailer && !showRatingModal) return;

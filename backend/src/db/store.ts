@@ -154,7 +154,7 @@ export class DatabaseStore {
     {
       id: 'usr-admin-01',
       email: 'admin@smarttv.com',
-      username: 'smarttv_admin',
+      username: 'admin',
       role: 'admin',
       is_blocked: false,
       created_at: new Date().toISOString()

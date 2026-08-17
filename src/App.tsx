@@ -92,7 +92,10 @@ export function App() {
   const loadCatalog = async () => {
     try {
       setIsLoading(true);
-      const data = await api.getHome();
+      const data = await api.getHome((freshData) => {
+        // Seamlessly update UI when background revalidation completes
+        setHomeData(freshData);
+      });
       setHomeData(data);
     } catch (err) {
       console.error('Failed to fetch home catalog', err);
@@ -320,9 +323,9 @@ export function App() {
                   />
                 )}
 
-                {(activeTab === 'trending' || activeTab === 'collections' || activeTab === '4k') && homeData && (
+                {(activeTab === 'trending' || activeTab === 'collections' || activeTab === '4k' || activeTab === 'movies' || activeTab === 'series' || activeTab === 'anime') && homeData && (
                   <CategoryPage
-                    mode={activeTab}
+                    mode={activeTab as any}
                     data={homeData}
                     onSelectContent={setSelectedContent}
                   />

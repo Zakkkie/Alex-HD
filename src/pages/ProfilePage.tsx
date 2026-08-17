@@ -45,7 +45,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
 
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return !!localStorage.getItem('tv_access_token') || localStorage.getItem('demo_logged_in') !== 'false';
+    return !!localStorage.getItem('tv_access_token');
   });
 
   // Auth Form State (when !isLoggedIn)
@@ -62,68 +62,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
     setIsAuthLoading(true);
 
     try {
-      const res = await api.login(authEmail, authPassword);
+      const res = authMode === 'register'
+        ? await api.register(authEmail, authPassword, authDisplayName)
+        : await api.login(authEmail, authPassword);
+
       if (res.accessToken) {
         localStorage.setItem('tv_access_token', res.accessToken);
+        const loggedProfile: UserProfile = {
+          id: res.user?.id || `usr-${Date.now()}`,
+          username: res.user?.username || authEmail.split('@')[0] || 'user',
+          displayName: res.user?.displayName || authDisplayName || authEmail.split('@')[0] || 'Пользователь',
+          email: res.user?.email || authEmail,
+          role: (res.user?.role as 'admin' | 'user') || 'user',
+          plan: (res.user?.plan as any) || 'standard',
+          subscription_expires_at: res.user?.subscription_expires_at || null,
+          connected_devices_count: res.user?.connected_devices_count || 1,
+          isSubscribed: !!res.user?.subscription_expires_at
+        };
+
+        setCurrentUser(loggedProfile);
+        setIsLoggedIn(true);
       } else {
-        localStorage.setItem('tv_access_token', 'demo-jwt-token-' + Date.now());
+        throw new Error('Не удалось получить токен авторизации');
       }
-      localStorage.setItem('demo_logged_in', 'true');
-
-      const loggedProfile: UserProfile = {
-        id: res.user?.id || 'usr-user-01',
-        username: res.user?.username || authEmail.split('@')[0] || 'alex_user',
-        displayName: res.user?.displayName || authDisplayName || authEmail.split('@')[0] || 'Пользователь Alex HD',
-        email: authEmail || 'user@alexhd.app',
-        role: (res.user?.role as 'admin' | 'user') || (authEmail.includes('admin') ? 'admin' : 'user'),
-        plan: (res.user?.plan as any) || 'standard',
-        subscription_expires_at: res.user?.subscription_expires_at || null,
-        connected_devices_count: 1,
-        isSubscribed: false
-      };
-
-      setCurrentUser(loggedProfile);
-      setIsLoggedIn(true);
     } catch (err: any) {
-      // Local fallback in case backend server is offline or client-side demo mode
-      localStorage.setItem('tv_access_token', 'demo-jwt-token-' + Date.now());
-      localStorage.setItem('demo_logged_in', 'true');
-
-      const loggedProfile: UserProfile = {
-        id: 'usr-user-01',
-        username: authEmail.split('@')[0] || 'alex_user',
-        displayName: authDisplayName || authEmail.split('@')[0] || 'Пользователь Alex HD',
-        email: authEmail || 'user@alexhd.app',
-        role: authEmail.includes('admin') ? 'admin' : 'user',
-        plan: 'standard',
-        subscription_expires_at: null,
-        connected_devices_count: 1,
-        isSubscribed: false
-      };
-
-      setCurrentUser(loggedProfile);
-      setIsLoggedIn(true);
+      setAuthError(err.message || 'Ошибка аутентификации');
     } finally {
       setIsAuthLoading(false);
     }
-  };
-
-  const handleDemoLogin = () => {
-    localStorage.setItem('tv_access_token', 'demo-token-' + Date.now());
-    localStorage.setItem('demo_logged_in', 'true');
-    const demoProfile: UserProfile = {
-      id: 'usr-user-01',
-      username: 'alex_viewer',
-      displayName: 'Пользователь Alex HD',
-      email: 'user@alexhd.app',
-      role: 'user',
-      plan: 'standard',
-      subscription_expires_at: null,
-      connected_devices_count: 1,
-      isSubscribed: false
-    };
-    setCurrentUser(demoProfile);
-    setIsLoggedIn(true);
   };
 
   // Checkout modal state for subscription plan upgrade
@@ -279,7 +245,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
 
   const handleLogout = () => {
     localStorage.removeItem('tv_access_token');
-    localStorage.setItem('demo_logged_in', 'false');
     setIsLoggedIn(false);
     if (onLogout) onLogout();
   };
@@ -1252,29 +1217,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onUserUpdate, on
               </button>
             </form>
 
-            <div className="relative flex items-center justify-center my-4">
-              <div className="border-t border-white/10 w-full"></div>
-              <span className="bg-[#121110] px-3 text-[10px] font-mono text-[#e6e3df]/40 uppercase tracking-widest absolute">
-                или
-              </span>
-            </div>
-
-            <div className="space-y-2">
+            <div className="pt-2">
               <button
                 type="button"
-                onClick={handleDemoLogin}
-                className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-mono text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4 text-[#d4b581]" />
-                Быстрый демо-вход в 1 клик
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  handleDemoLogin();
-                  setIsAdminAuthModalOpen(true);
-                }}
+                onClick={() => setIsAdminAuthModalOpen(true)}
                 className="w-full py-2.5 text-[#d4b581] hover:underline font-mono text-xs text-center block cursor-pointer"
               >
                 Вход в панель администратора по паролю
