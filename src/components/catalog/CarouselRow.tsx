@@ -10,6 +10,8 @@ interface CarouselRowProps {
   upTarget?: string;
   downTarget?: string;
   leftTargetPrefix?: string;
+  onScrollToEnd?: () => void;
+  isLoadingMore?: boolean;
 }
 
 export const CarouselRow: React.FC<CarouselRowProps> = ({
@@ -19,9 +21,21 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
   onSelect,
   upTarget,
   downTarget,
-  leftTargetPrefix = 'sidebar-home'
+  leftTargetPrefix = 'sidebar-home',
+  onScrollToEnd,
+  isLoadingMore = false
 }) => {
   if (!items || items.length === 0) return null;
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    // Trigger scroll to end when 500px away from the right edge
+    const threshold = 500;
+    const isNearEnd = target.scrollWidth - target.scrollLeft - target.clientWidth < threshold;
+    if (isNearEnd && onScrollToEnd) {
+      onScrollToEnd();
+    }
+  };
 
   return (
     <div className="mb-8 space-y-3.5">
@@ -36,7 +50,10 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
         </span>
       </div>
 
-      <div className="flex items-center gap-5 sm:gap-6 overflow-x-auto pb-5 pt-3 px-1 no-scrollbar scroll-smooth">
+      <div 
+        onScroll={handleScroll}
+        className="flex items-center gap-5 sm:gap-6 overflow-x-auto pb-5 pt-3 px-1 no-scrollbar scroll-smooth"
+      >
         {items.map((entry, colIndex) => {
           const item: ContentItem = (entry as WatchHistoryItem).content || (entry as ContentItem);
           const historyItem = (entry as WatchHistoryItem).position_seconds !== undefined ? (entry as WatchHistoryItem) : undefined;
@@ -59,7 +76,7 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
               onSelect={onSelect}
               progressPercent={progressPercent}
               isFirst={colIndex === 0}
-              isLast={colIndex === items.length - 1}
+              isLast={colIndex === items.length - 1 && !isLoadingMore}
               upTarget={upTarget || (rowIndex > 0 ? `carousel-row-${rowIndex - 1}-item-${Math.min(colIndex, 4)}` : 'hero-play-btn')}
               downTarget={downTarget || `carousel-row-${rowIndex + 1}-item-${Math.min(colIndex, 4)}`}
               leftTarget={leftTarget}
@@ -67,6 +84,13 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
             />
           );
         })}
+
+        {isLoadingMore && (
+          <div className="flex-shrink-0 w-[140px] sm:w-[160px] md:w-[180px] lg:w-[200px] h-[210px] sm:h-[240px] md:h-[270px] lg:h-[300px] bg-[#121110] border border-[#e6e3df]/10 rounded-2xl flex flex-col items-center justify-center text-center p-4">
+            <div className="w-8 h-8 border-2 border-[#d4b581] border-t-transparent rounded-full animate-spin mb-3" />
+            <span className="text-[10px] text-[#d4b581] uppercase tracking-widest font-mono-code">Загрузка...</span>
+          </div>
+        )}
       </div>
     </div>
   );

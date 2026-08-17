@@ -262,8 +262,10 @@ async function startServer() {
   // ------------------- CATALOG API -------------------
   app.get('/api/v1/catalog/home', async (req, res) => {
     const userId = getUserId(req);
-    if (dbStore.content.length < 10) {
-      await MetadataService.autoPopulateFromTMDB().catch(() => {});
+    if (dbStore.content.length < 1000) {
+      MetadataService.autoPopulateFromTMDB().catch((err) => {
+        console.error('Background initial population failed:', err);
+      });
     }
     const payload = CatalogService.getHomePayload(userId);
     res.json(payload);

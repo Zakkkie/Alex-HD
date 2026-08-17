@@ -76,8 +76,10 @@ export class CatalogService {
     const limit = Math.max(10, Math.min(100, Number(opts.limit) || 50));
     const type = opts.type || 'all';
 
-    if (dbStore.content.length < 50) {
-      await MetadataService.autoPopulateFromTMDB().catch(() => {});
+    if (dbStore.content.length < 1000) {
+      MetadataService.autoPopulateFromTMDB().catch((err) => {
+        console.error('Background catalog items population failed:', err);
+      });
     }
 
     let items = dbStore.content.filter(c => c.is_published);

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { HomePayload, ContentItem } from '../types';
+import { HomePayload, ContentItem, WatchHistoryItem } from '../types';
 import { HeroShowcase } from '../components/catalog/HeroShowcase';
 import { CarouselRow } from '../components/catalog/CarouselRow';
 import { useTVNavigation } from '../navigation/useTVNavigation';
+import { api } from '../api/client';
 
 interface HomeProps {
   data: HomePayload;
@@ -21,6 +22,11 @@ export const Home: React.FC<HomeProps> = ({
 }) => {
   const [filter, setFilter] = useState<'all' | 'movies' | 'series' | '4k'>('all');
 
+  // Track state for infinite scroll per row
+  const [rowItems, setRowItems] = useState<Record<string, (ContentItem | WatchHistoryItem)[]>>({});
+  const [rowPages, setRowPages] = useState<Record<string, number>>({});
+  const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({});
+
   const heroPlaylist = React.useMemo(() => {
     if (!data) return [];
     const list: ContentItem[] = [];
@@ -35,6 +41,139 @@ export const Home: React.FC<HomeProps> = ({
     return list.slice(0, 6);
   }, [data]);
 
+  const filterItems = (items: ContentItem[]) => {
+    if (!items) return [];
+    if (filter === 'movies') return items.filter(i => i.type === 'movie');
+    if (filter === 'series') return items.filter(i => i.type === 'series');
+    if (filter === '4k') return items.filter(i => i.is_4k);
+    return items;
+  };
+
+  const filteredTrending = React.useMemo(() => filterItems(data?.trending24h || []), [data, filter]);
+  const filteredPopular = React.useMemo(() => filterItems(data?.popular || []), [data, filter]);
+  const filteredNew = React.useMemo(() => filterItems(data?.newReleases || []), [data, filter]);
+  const filteredClassics = React.useMemo(() => filterItems(data?.timelessClassics || []), [data, filter]);
+  const filtered4k = React.useMemo(() => filterItems(data?.fourKCollection || []), [data, filter]);
+
+  // When data or filter changes, initialize or reset row items and page counts
+  React.useEffect(() => {
+    if (!data) return;
+    const initialItems: Record<string, (ContentItem | WatchHistoryItem)[]> = {};
+    const initialPages: Record<string, number> = {};
+
+    const topMoviesItems = filter === 'series' ? [] : filterItems(data.topMovies || []);
+    const topSeriesItems = filter === 'movies' ? [] : filterItems(data.topSeries || []);
+    const animeItems = filter === '4k' ? filterItems(data.anime || []).filter(i => i.is_4k) : filterItems(data.anime || []);
+    const trendingItems = filteredTrending;
+    const popularItems = filteredPopular;
+    const classicsItems = filteredClassics;
+    const fourKItems = filtered4k;
+    const continueItems = data.continueWatching && data.continueWatching.length > 0 && filter === 'all' ? data.continueWatching : [];
+
+    initialItems['continue'] = continueItems;
+    initialItems['top-movies'] = topMoviesItems;
+    initialItems['top-series'] = topSeriesItems;
+    initialItems['anime'] = animeItems;
+    initialItems['trending'] = trendingItems;
+    initialItems['popular'] = popularItems;
+    initialItems['classics'] = classicsItems;
+    initialItems['4k'] = fourKItems;
+
+    initialPages['continue'] = 1;
+    initialPages['top-movies'] = 1;
+    initialPages['top-series'] = 1;
+    initialPages['anime'] = 1;
+    initialPages['trending'] = 1;
+    initialPages['popular'] = 1;
+    initialPages['classics'] = 1;
+    initialPages['4k'] = 1;
+
+    setRowItems(initialItems);
+    setRowPages(initialPages);
+    setRowLoading({});
+  }, [data, filter, filteredTrending, filteredPopular, filteredClassics, filtered4k]);
+
+  // Load more function triggered by scroll-to-end detection
+  const handleLoadMore = async (rowId: string) => {
+    if (rowLoading[rowId]) return;
+    if (rowId === 'continue') return;
+
+    const currentPage = rowPages[rowId] || 1;
+    const nextPage = currentPage + 1;
+
+    let type = 'all';
+    let sortBy = 'popularity';
+
+    switch (rowId) {
+      case 'top-movies':
+        type = 'movie';
+        sortBy = 'year';
+        break;
+      case 'top-series':
+        type = 'series';
+        sortBy = 'year';
+        break;
+      case 'anime':
+        type = 'anime';
+        sortBy = 'rating';
+        break;
+      case 'trending':
+        type = 'trending';
+        sortBy = 'popularity';
+        break;
+      case 'popular':
+        type = 'all';
+        sortBy = 'popularity';
+        break;
+      case 'classics':
+        type = 'all';
+        sortBy = 'rating';
+        break;
+      case '4k':
+        type = '4k';
+        sortBy = 'popularity';
+        break;
+      default:
+        return;
+    }
+
+    setRowLoading(prev => ({ ...prev, [rowId]: true }));
+
+    try {
+      const res = await api.getCatalogItems({
+        page: nextPage,
+        limit: 15, // load chunks of 15
+        type,
+        sortBy
+      });
+
+      if (res && Array.isArray(res.items) && res.items.length > 0) {
+        const existingRowItems = rowItems[rowId] || [];
+        const existingIds = new Set(existingRowItems.map(item => {
+          const content = (item as WatchHistoryItem).content || (item as ContentItem);
+          return content.id;
+        }));
+
+        const newItems = res.items.filter(item => !existingIds.has(item.id));
+
+        if (newItems.length > 0) {
+          setRowItems(prev => ({
+            ...prev,
+            [rowId]: [...(prev[rowId] || []), ...newItems]
+          }));
+          setRowPages(prev => ({
+            ...prev,
+            [rowId]: nextPage
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn(`[Home.tsx] Failed to load more items for ${rowId}:`, err);
+    } finally {
+      setRowLoading(prev => ({ ...prev, [rowId]: false }));
+    }
+  };
+
   if (!data || !data.hero) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
@@ -47,72 +186,56 @@ export const Home: React.FC<HomeProps> = ({
     );
   }
 
-  const filterItems = (items: ContentItem[]) => {
-    if (!items) return [];
-    if (filter === 'movies') return items.filter(i => i.type === 'movie');
-    if (filter === 'series') return items.filter(i => i.type === 'series');
-    if (filter === '4k') return items.filter(i => i.is_4k);
-    return items;
-  };
-
-  const filteredTrending = filterItems(data.trending24h || []);
-  const filteredPopular = filterItems(data.popular || []);
-  const filteredNew = filterItems(data.newReleases || []);
-  const filteredClassics = filterItems(data.timelessClassics || []);
-  const filtered4k = filterItems(data.fourKCollection || []);
-
-  const rows = React.useMemo(() => {
-    return [
-      {
-        id: 'continue',
-        rowIndex: 0,
-        title: 'Продолжить просмотр',
-        items: data.continueWatching && data.continueWatching.length > 0 && filter === 'all' ? data.continueWatching : []
-      },
-      {
-        id: 'top-movies',
-        rowIndex: 1,
-        title: 'Последние новинки кино',
-        items: filter === 'series' ? [] : filterItems(data.topMovies || [])
-      },
-      {
-        id: 'top-series',
-        rowIndex: 2,
-        title: 'Топовые новые сериалы',
-        items: filter === 'movies' ? [] : filterItems(data.topSeries || [])
-      },
-      {
-        id: 'anime',
-        rowIndex: 3,
-        title: 'Популярное аниме и мультфильмы',
-        items: filter === '4k' ? filterItems(data.anime || []).filter(i => i.is_4k) : filterItems(data.anime || [])
-      },
-      {
-        id: 'trending',
-        rowIndex: 4,
-        title: 'Сейчас смотрят (Тренды 24ч)',
-        items: filteredTrending
-      },
-      {
-        id: 'popular',
-        rowIndex: 5,
-        title: 'Популярное в каталоге',
-        items: filteredPopular
-      },
-      {
-        id: 'classics',
-        rowIndex: 6,
-        title: 'Вечные хиты и Классика',
-        items: filteredClassics
-      },
-      {
-        id: '4k',
-        rowIndex: 7,
-        title: '4K Ultra HDR Качество',
-        items: filtered4k
-      }
-    ].filter(r => r.items.length > 0);
-  }, [data, filter, filteredTrending, filteredPopular, filteredClassics, filtered4k]);
+  const rows = [
+    {
+      id: 'continue',
+      rowIndex: 0,
+      title: 'Продолжить просмотр',
+      items: rowItems['continue'] || []
+    },
+    {
+      id: 'top-movies',
+      rowIndex: 1,
+      title: 'Последние новинки кино',
+      items: rowItems['top-movies'] || []
+    },
+    {
+      id: 'top-series',
+      rowIndex: 2,
+      title: 'Топовые новые сериалы',
+      items: rowItems['top-series'] || []
+    },
+    {
+      id: 'anime',
+      rowIndex: 3,
+      title: 'Популярное аниме и мультфильмы',
+      items: rowItems['anime'] || []
+    },
+    {
+      id: 'trending',
+      rowIndex: 4,
+      title: 'Сейчас смотрят (Тренды 24ч)',
+      items: rowItems['trending'] || []
+    },
+    {
+      id: 'popular',
+      rowIndex: 5,
+      title: 'Популярное в каталоге',
+      items: rowItems['popular'] || []
+    },
+    {
+      id: 'classics',
+      rowIndex: 6,
+      title: 'Вечные хиты и Классика',
+      items: rowItems['classics'] || []
+    },
+    {
+      id: '4k',
+      rowIndex: 7,
+      title: '4K Ultra HDR Качество',
+      items: rowItems['4k'] || []
+    }
+  ].filter(r => r.items.length > 0);
 
   const firstRowItemId = rows.length > 0 ? `carousel-row-${rows[0].rowIndex}-item-0` : 'carousel-row-1-item-0';
 
@@ -190,6 +313,8 @@ export const Home: React.FC<HomeProps> = ({
               onSelect={onSelectContent}
               upTarget={upTarget}
               downTarget={downTarget}
+              onScrollToEnd={() => handleLoadMore(row.id)}
+              isLoadingMore={rowLoading[row.id]}
             />
           );
         })}
