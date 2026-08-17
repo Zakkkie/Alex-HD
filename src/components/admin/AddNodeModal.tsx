@@ -60,19 +60,23 @@ export const AddNodeModal: React.FC<AddNodeModalProps> = ({ isOpen, onClose, onN
       };
 
       // Register via API and store
-      await api.registerNode({
-        nodeId: generatedId,
-        hostname: cleanIp,
-        region: location.trim() || 'VPS',
-        bandwidthMbps: (Number(bandwidthGbps) || 2.5) * 1000,
-        maxCapacity: 100
-      });
+      try {
+        await api.registerNode({
+          nodeId: generatedId,
+          hostname: cleanIp,
+          region: location.trim() || 'VPS',
+          bandwidthMbps: (Number(bandwidthGbps) || 2.5) * 1000,
+          maxCapacity: 100
+        });
+      } catch (apiErr: any) {
+        console.warn('API registration notice:', apiErr);
+      }
 
       const added = adminStore.addNode(newNode);
       onNodeAdded(added);
       onClose();
     } catch (err: any) {
-      alert(`Ошибка добавления узла: ${err.message}`);
+      alert(`Ошибка добавления узла: ${err?.message || 'Не удалось добавить узел'}`);
     } finally {
       setIsSubmitting(false);
     }
