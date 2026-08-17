@@ -135,16 +135,16 @@ export const initialCollections: Collection[] = [
 
 export const initialNodes: NodeHealthStatus[] = [
   {
-    nodeId: 'node-local-01',
-    hostname: '127.0.0.1:8090',
-    region: 'Local / Edge Direct',
-    isOnline: false,
-    cpuUsagePercent: 0,
-    ramUsagePercent: 0,
-    bandwidthMbps: 0,
-    activeStreams: 0,
-    maxCapacity: 50,
-    loadFactor: 0
+    nodeId: 'node-torr-primary',
+    hostname: '178.236.240.100:8090',
+    region: 'TorrServer MatriX (178.236.240.100:8090)',
+    isOnline: true,
+    cpuUsagePercent: 12,
+    ramUsagePercent: 24,
+    bandwidthMbps: 850,
+    activeStreams: 1,
+    maxCapacity: 150,
+    loadFactor: 0.1
   }
 ];
 

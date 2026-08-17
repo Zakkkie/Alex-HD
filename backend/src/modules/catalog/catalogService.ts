@@ -1,5 +1,6 @@
 import { dbStore } from '../../db/store';
-import { HomePayload, ContentItem, Collection, WatchHistoryItem } from '../../../../src/types';
+import { HomePayload, ContentItem, Collection, WatchHistoryItem, Season, Episode } from '../../../../src/types';
+import { TMDBClient } from '../metadata/metadataService';
 
 export class CatalogService {
   static getHomePayload(userId: string): HomePayload {
@@ -63,17 +64,165 @@ export class CatalogService {
     };
   }
 
-  static getContentDetail(id: string, userId?: string) {
-    const item = dbStore.content.find(c => c.id === id || c.tmdb_id === parseInt(id, 10));
+  static async getContentDetail(id: string, userId?: string) {
+    let item = dbStore.content.find(c => c.id === id || (c.tmdb_id && String(c.tmdb_id) === String(id)));
+
+    // If not found in memory, try fetching directly from TMDB
+    if (!item) {
+      try {
+        let tmdbId: number | null = null;
+        let type: 'movie' | 'series' = 'movie';
+
+        if (id.startsWith('tmdb-movie-')) {
+          tmdbId = parseInt(id.replace('tmdb-movie-', ''), 10);
+          type = 'movie';
+        } else if (id.startsWith('tmdb-tv-') || id.startsWith('tmdb-series-')) {
+          tmdbId = parseInt(id.replace(/tmdb-(tv|series)-/, ''), 10);
+          type = 'series';
+        } else if (!isNaN(Number(id))) {
+          tmdbId = Number(id);
+          type = 'movie';
+        }
+
+        if (tmdbId) {
+          if (type === 'movie') {
+            const raw = await TMDBClient.getMovieDetails(tmdbId);
+            item = TMDBClient.convertToContentItem(raw, 'movie');
+          } else {
+            const raw = await TMDBClient.getTVDetails(tmdbId);
+            item = TMDBClient.convertToContentItem(raw, 'series');
+          }
+
+          if (item) {
+            dbStore.content.push(item);
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not dynamically fetch TMDB item ${id}:`, err);
+      }
+    }
+
     if (!item) return null;
+
+    // Check if we need on-demand lazy enrichment of cast/crew details from TMDB
+    const needsDetailHydration = item.tmdb_id && (!item.cast_members || item.cast_members.length === 0 || !item.crew_members || item.crew_members.length === 0);
+    if (needsDetailHydration) {
+      try {
+        if (item.type === 'movie') {
+          const raw = await TMDBClient.getMovieDetails(item.tmdb_id);
+          const enriched = TMDBClient.convertToContentItem(raw, 'movie');
+          const idx = dbStore.content.findIndex(c => c.id === item!.id);
+          if (idx >= 0) {
+            dbStore.content[idx] = {
+              ...dbStore.content[idx],
+              ...enriched,
+              genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
+              overview: enriched.overview || dbStore.content[idx].overview,
+              director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
+              cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
+              cast_members: enriched.cast_members,
+              crew_members: enriched.crew_members
+            };
+            item = dbStore.content[idx];
+          }
+        } else {
+          const raw = await TMDBClient.getTVDetails(item.tmdb_id);
+          const enriched = TMDBClient.convertToContentItem(raw, 'series');
+          const idx = dbStore.content.findIndex(c => c.id === item!.id);
+          if (idx >= 0) {
+            dbStore.content[idx] = {
+              ...dbStore.content[idx],
+              ...enriched,
+              genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
+              overview: enriched.overview || dbStore.content[idx].overview,
+              director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
+              cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
+              cast_members: enriched.cast_members,
+              crew_members: enriched.crew_members
+            };
+            item = dbStore.content[idx];
+          }
+        }
+      } catch (err) {
+        console.warn('Lazy TMDB credits hydration skipped:', err);
+      }
+    }
 
     // Increment play count
     item.play_count += 1;
 
     let seasons = undefined;
     if (item.type === 'series') {
+      let existingSeasons = dbStore.seasons.filter(s => s.content_id === item!.id);
+
+      // If no seasons generated yet and it has tmdb_id, generate rich seasons and fetch real episode data
+      if (existingSeasons.length === 0 && item.tmdb_id) {
+        try {
+          const tvDetails = await TMDBClient.getTVDetails(item.tmdb_id);
+          if (tvDetails.seasons && Array.isArray(tvDetails.seasons)) {
+            for (const sData of tvDetails.seasons) {
+              if (sData.season_number === 0) continue;
+              const seasonId = `s-${item.id}-${sData.season_number}`;
+              const newSeason: Season = {
+                id: seasonId,
+                content_id: item.id,
+                season_number: sData.season_number,
+                title: sData.name || `Сезон ${sData.season_number}`,
+                overview: sData.overview || `Сезон ${sData.season_number} сериала ${item.title}`,
+                poster_url: TMDBClient.getImageUrl(sData.poster_path, 'w500')
+              };
+              dbStore.seasons.push(newSeason);
+
+              // Try fetching exact episodes for this season from TMDB
+              let fetchedEpisodes = false;
+              try {
+                const seasonEpisodesRes = await TMDBClient.getTVSeason(item.tmdb_id, sData.season_number);
+                if (seasonEpisodesRes.episodes && Array.isArray(seasonEpisodesRes.episodes) && seasonEpisodesRes.episodes.length > 0) {
+                  seasonEpisodesRes.episodes.forEach((ep: any) => {
+                    const epId = `ep-${seasonId}-${ep.episode_number}`;
+                    dbStore.episodes.push({
+                      id: epId,
+                      season_id: seasonId,
+                      episode_number: ep.episode_number,
+                      title: ep.name || `Серия ${ep.episode_number}`,
+                      overview: ep.overview || `Эпизод ${ep.episode_number} сезона ${sData.season_number}.`,
+                      runtime_minutes: ep.runtime || 45,
+                      still_url: TMDBClient.getImageUrl(ep.still_path, 'w500') || item!.backdrop_url || item!.poster_url,
+                      air_date: ep.air_date || (item!.release_year ? `${item!.release_year}-01-01` : '2024-01-01')
+                    });
+                  });
+                  fetchedEpisodes = true;
+                }
+              } catch (e) {
+                console.warn(`Could not fetch episodes for season ${sData.season_number}, fallback to stubs`, e);
+              }
+
+              // Fallback if episode endpoint failed or empty
+              if (!fetchedEpisodes) {
+                const epCount = sData.episode_count || 8;
+                for (let epNum = 1; epNum <= epCount; epNum++) {
+                  const epId = `ep-${seasonId}-${epNum}`;
+                  dbStore.episodes.push({
+                    id: epId,
+                    season_id: seasonId,
+                    episode_number: epNum,
+                    title: `Серия ${epNum}`,
+                    overview: `Эпизод ${epNum} захватывающего сезона ${sData.season_number}.`,
+                    runtime_minutes: 45,
+                    still_url: item.backdrop_url || item.poster_url,
+                    air_date: item.release_year ? `${item.release_year}-01-01` : '2024-01-01'
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to load TMDB seasons', e);
+        }
+      }
+
       seasons = dbStore.seasons
-        .filter(s => s.content_id === item.id)
+        .filter(s => s.content_id === item!.id)
         .map(season => {
           const episodes = dbStore.episodes.filter(e => e.season_id === season.id);
           return { ...season, episodes };
@@ -84,7 +233,7 @@ export class CatalogService {
     const isWatchlist = userId ? Boolean(dbStore.watchlist.get(userId)?.has(item.id)) : false;
 
     // Check watch history for resume state
-    const historyEntry = userId ? dbStore.history.find(h => h.user_id === userId && h.content_id === item.id) : null;
+    const historyEntry = userId ? dbStore.history.find(h => h.user_id === userId && h.content_id === item!.id) : null;
 
     return {
       ...item,
@@ -102,11 +251,11 @@ export class CatalogService {
     };
   }
 
-  static search(query: string): ContentItem[] {
+  static async search(query: string): Promise<ContentItem[]> {
     const published = dbStore.content.filter(c => c.is_published);
     if (!query || query.trim().length === 0) return published;
     const q = query.toLowerCase().trim();
-    return published.filter(c =>
+    const localMatches = published.filter(c =>
       c.title.toLowerCase().includes(q) ||
       (c.original_title && c.original_title.toLowerCase().includes(q)) ||
       (c.overview && c.overview.toLowerCase().includes(q)) ||
@@ -114,6 +263,49 @@ export class CatalogService {
       (c.director && c.director.toLowerCase().includes(q)) ||
       (c.cast && c.cast.some(actor => actor.toLowerCase().includes(q)))
     );
+
+    // If query has at least 2 characters, also pull live results from TMDB
+    if (q.length >= 2) {
+      try {
+        const [movies, tvShows] = await Promise.all([
+          TMDBClient.searchMovies(query, 1).catch(() => ({ results: [] })),
+          TMDBClient.searchTVShows(query, 1).catch(() => ({ results: [] })),
+        ]);
+
+        const externalResults: ContentItem[] = [];
+        if (movies.results) {
+          for (const m of movies.results.slice(0, 6)) {
+            const item = TMDBClient.convertToContentItem(m, 'movie');
+            if (!dbStore.content.some(c => c.id === item.id || (c.tmdb_id && c.tmdb_id === item.tmdb_id))) {
+              dbStore.content.push(item);
+            }
+            externalResults.push(item);
+          }
+        }
+        if (tvShows.results) {
+          for (const s of tvShows.results.slice(0, 6)) {
+            const item = TMDBClient.convertToContentItem(s, 'series');
+            if (!dbStore.content.some(c => c.id === item.id || (c.tmdb_id && c.tmdb_id === item.tmdb_id))) {
+              dbStore.content.push(item);
+            }
+            externalResults.push(item);
+          }
+        }
+
+        // Merge local matches and newly discovered items
+        const combined = [...localMatches];
+        for (const ext of externalResults) {
+          if (!combined.some(c => c.id === ext.id || (c.tmdb_id && c.tmdb_id === ext.tmdb_id))) {
+            combined.push(ext);
+          }
+        }
+        return combined;
+      } catch (err) {
+        console.warn('TMDB dynamic search fallback to local:', err);
+      }
+    }
+
+    return localMatches;
   }
 
   static getCollections(): Collection[] {

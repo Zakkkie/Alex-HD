@@ -267,9 +267,9 @@ async function startServer() {
     res.json(payload);
   });
 
-  app.get('/api/v1/catalog/search', searchRateLimiter, (req, res) => {
+  app.get('/api/v1/catalog/search', searchRateLimiter, async (req, res) => {
     const q = (req.query.q as string) || '';
-    const results = CatalogService.search(q);
+    const results = await CatalogService.search(q);
     res.json(results);
   });
 
@@ -285,9 +285,9 @@ async function startServer() {
     }
   });
 
-  app.get('/api/v1/catalog/content/:id', (req, res) => {
+  app.get('/api/v1/catalog/content/:id', async (req, res) => {
     const userId = getUserId(req);
-    const detail = CatalogService.getContentDetail(req.params.id, userId);
+    const detail = await CatalogService.getContentDetail(req.params.id, userId);
     if (!detail) {
       return res.status(404).json({ error: 'CONTENT_NOT_FOUND', message: 'Контент не найден' });
     }
@@ -424,10 +424,18 @@ async function startServer() {
       }
 
       const { contentId, quality = '1080p', targetNodeId } = req.body;
-      const contentItem = dbStore.content.find(c => c.id === contentId);
+      let contentItem = dbStore.content.find(c => c.id === contentId || (c.tmdb_id && String(c.tmdb_id) === String(contentId)));
 
       if (!contentItem) {
-        return res.status(404).json({ error: 'CONTENT_NOT_FOUND' });
+        // Try dynamic detail fetch to seed into dbStore.content
+        const dynamicItem = await CatalogService.getContentDetail(contentId, userId);
+        if (dynamicItem) {
+          contentItem = dynamicItem as any;
+        }
+      }
+
+      if (!contentItem) {
+        return res.status(404).json({ error: 'CONTENT_NOT_FOUND', message: 'Контент не найден' });
       }
 
       // Step 1: Search sources via Source Manager
@@ -445,7 +453,16 @@ async function startServer() {
       // Step 2: Route to least-loaded edge node using Least-Loaded Routing Formula
       const session = await streamingProvider.createSession(selectedSource, userId, targetNodeId);
 
-      res.json(session);
+      // Attach direct TorrServer and proxy streaming references
+      const torrNode = dbStore.nodes.find(n => n.nodeId === session.nodeId) || dbStore.nodes[0];
+      const directTorrServerUrl = `http://${torrNode.hostname}/stream?link=${encodeURIComponent(selectedSource.locator)}&play=true`;
+
+      res.json({
+        ...session,
+        directTorrServerUrl,
+        source: selectedSource,
+        title: contentItem.title
+      });
     } catch (err: any) {
       console.error('[Playback] Error:', err);
       res.status(500).json({ error: 'PLAYBACK_INIT_FAILED', message: err.message });
@@ -694,10 +711,20 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Smart TV Core Server] Fastify/Express Backend running at http://0.0.0.0:${PORT}`);
-    // Auto populate catalog from TMDB on startup
-    MetadataService.autoPopulateFromTMDB().catch(err => {
+    // Auto populate catalog from TMDB on startup immediately
+    MetadataService.autoPopulateFromTMDB().then(count => {
+      console.log(`[TMDB Catalog Hydration] Startup database initialized with ${count} fresh items from TMDB.`);
+    }).catch(err => {
       console.warn('Initial TMDB auto-populate deferred:', err);
     });
+
+    // Background auto-refresh catalog every 30 minutes
+    setInterval(() => {
+      console.log('[TMDB Auto-Sync] Running periodic background catalog update...');
+      MetadataService.autoPopulateFromTMDB().catch(err => {
+        console.warn('Background TMDB auto-populate error:', err);
+      });
+    }, 30 * 60 * 1000);
   });
 }
 

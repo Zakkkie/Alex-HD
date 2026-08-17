@@ -37,7 +37,7 @@ export interface TorrServerTorrentInfo {
 }
 
 export class TorrServerService {
-  private static defaultUrl = process.env.TORRSERVER_URL || 'http://localhost:8090';
+  private static defaultUrl = process.env.TORRSERVER_URL || 'http://178.236.240.100:8090';
 
   /**
    * Tests connection to a TorrServer instance at given URL.

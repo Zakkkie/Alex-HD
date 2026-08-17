@@ -1,12 +1,42 @@
 import { dbStore } from '../../db/store';
 import { ContentItem, Season, Episode } from '../../../../src/types';
 
+export const TMDB_GENRE_MAP: Record<number, string> = {
+  28: 'Боевик',
+  12: 'Приключения',
+  16: 'Мультфильм',
+  35: 'Комедия',
+  80: 'Криминал',
+  99: 'Документальный',
+  18: 'Драма',
+  10751: 'Семейный',
+  14: 'Фэнтези',
+  36: 'История',
+  27: 'Ужасы',
+  10402: 'Музыка',
+  9648: 'Детектив',
+  10749: 'Мелодрама',
+  878: 'Фантастика',
+  10770: 'Телефильм',
+  53: 'Триллер',
+  10752: 'Военный',
+  37: 'Вестерн',
+  10759: 'Боевик и Приключения',
+  10762: 'Детский',
+  10763: 'Новости',
+  10764: 'Реалити-шоу',
+  10765: 'Фантастика и Фэнтези',
+  10766: 'Мыльная опера',
+  10767: 'Ток-шоу',
+  10768: 'Война и Политика'
+};
+
 /**
  * TMDB API Client (The Movie Database v3/v4 API)
  */
 export class TMDBClient {
-  private static get apiKey(): string {
-    return process.env.TMDB_API_KEY || '15d2ea6d0dc1d476efbca3eba2b9bbf3';
+  public static get apiKey(): string {
+    return process.env.TMDB_API_KEY || '4e44d9029b1270a757cddc766a1bcb63';
   }
 
   private static get baseUrl(): string {
@@ -75,20 +105,20 @@ export class TMDBClient {
   }
 
   /**
-   * Get Movie Details + Credits
+   * Get Movie Details + Credits + Videos + Similar
    */
   static async getMovieDetails(tmdbId: number | string) {
     return await this.fetchTMDB(`/movie/${tmdbId}`, {
-      append_to_response: 'credits,videos',
+      append_to_response: 'credits,videos,similar,recommendations',
     });
   }
 
   /**
-   * Get TV Series Details + Seasons
+   * Get TV Series Details + Seasons + Credits + Videos
    */
   static async getTVDetails(tmdbId: number | string) {
     return await this.fetchTMDB(`/tv/${tmdbId}`, {
-      append_to_response: 'credits,videos',
+      append_to_response: 'credits,videos,similar,recommendations',
     });
   }
 
@@ -122,8 +152,67 @@ export class TMDBClient {
   /**
    * Get Trending Movies/TV
    */
-  static async getTrending(type: 'all' | 'movie' | 'tv' = 'all', timeWindow: 'day' | 'week' = 'day') {
-    return await this.fetchTMDB(`/trending/${type}/${timeWindow}`);
+  static async getTrending(type: 'all' | 'movie' | 'tv' = 'all', timeWindow: 'day' | 'week' = 'day', page = 1) {
+    return await this.fetchTMDB(`/trending/${type}/${timeWindow}`, {
+      page: page.toString()
+    });
+  }
+
+  /**
+   * Get Popular Movies
+   */
+  static async getPopularMovies(page = 1) {
+    return await this.fetchTMDB('/movie/popular', { page: page.toString() });
+  }
+
+  /**
+   * Get Top Rated Movies
+   */
+  static async getTopRatedMovies(page = 1) {
+    return await this.fetchTMDB('/movie/top_rated', { page: page.toString() });
+  }
+
+  /**
+   * Get Now Playing Movies
+   */
+  static async getNowPlayingMovies(page = 1) {
+    return await this.fetchTMDB('/movie/now_playing', { page: page.toString() });
+  }
+
+  /**
+   * Get Upcoming Movies
+   */
+  static async getUpcomingMovies(page = 1) {
+    return await this.fetchTMDB('/movie/upcoming', { page: page.toString() });
+  }
+
+  /**
+   * Get Popular TV Shows
+   */
+  static async getPopularTV(page = 1) {
+    return await this.fetchTMDB('/tv/popular', { page: page.toString() });
+  }
+
+  /**
+   * Get Top Rated TV Shows
+   */
+  static async getTopRatedTV(page = 1) {
+    return await this.fetchTMDB('/tv/top_rated', { page: page.toString() });
+  }
+
+  /**
+   * Discover movies or series by genre
+   */
+  static async discover(type: 'movie' | 'tv', genreId?: number, sortBy: string = 'popularity.desc', page = 1) {
+    const params: Record<string, string> = {
+      sort_by: sortBy,
+      page: page.toString(),
+      include_adult: 'false'
+    };
+    if (genreId) {
+      params.with_genres = genreId.toString();
+    }
+    return await this.fetchTMDB(`/discover/${type}`, params);
   }
 
   /**
@@ -134,7 +223,15 @@ export class TMDBClient {
     const releaseDate = isMovie ? data.release_date : data.first_air_date;
     const releaseYear = releaseDate ? parseInt(releaseDate.split('-')[0], 10) : new Date().getFullYear();
 
-    const genres = data.genres ? data.genres.map((g: any) => g.name) : ['Кино'];
+    let genres: string[] = [];
+    if (data.genres && Array.isArray(data.genres)) {
+      genres = data.genres.map((g: any) => typeof g === 'string' ? g : g.name).filter(Boolean);
+    } else if (data.genre_ids && Array.isArray(data.genre_ids)) {
+      genres = data.genre_ids.map((id: number) => TMDB_GENRE_MAP[id]).filter(Boolean);
+    }
+    if (genres.length === 0) {
+      genres = [isMovie ? 'Кино' : 'Сериал'];
+    }
 
     let director = 'Неизвестно';
     const crew_members: any[] = [];
@@ -167,23 +264,26 @@ export class TMDBClient {
         }))
       : [];
 
+    const rawRating = data.vote_average || 7.5;
+    const cleanRating = Math.round(rawRating * 10) / 10;
+
     return {
       id: `tmdb-${type}-${data.id}`,
       tmdb_id: data.id,
       type,
-      title: isMovie ? data.title : data.name,
-      original_title: isMovie ? data.original_title : data.original_name,
+      title: (isMovie ? data.title : data.name) || 'Без названия',
+      original_title: (isMovie ? data.original_title : data.original_name) || '',
       release_year: releaseYear,
       age_rating: data.adult ? '18+' : '12+',
-      rating_imdb: Math.round((data.vote_average || 7.5) * 10) / 10,
-      rating_tmdb: Math.round((data.vote_average || 7.5) * 10) / 10,
+      rating_imdb: cleanRating,
+      rating_tmdb: cleanRating,
       runtime_minutes: isMovie ? (data.runtime || 120) : (data.episode_run_time?.[0] || 45),
-      overview: data.overview || 'Описание недоступно.',
+      overview: data.overview || 'Описание фильма загружено из базы TMDB.',
       poster_url: this.getImageUrl(data.poster_path, 'w500'),
       backdrop_url: this.getImageUrl(data.backdrop_path || data.poster_path, 'w780'),
       is_4k: true,
       is_published: true,
-      play_count: Math.floor(Math.random() * 5000) + 100,
+      play_count: Math.floor(Math.random() * 8000) + 500,
       genres,
       director,
       cast,
@@ -329,10 +429,11 @@ export class MetadataService {
    * Test API connections
    */
   static getStatus() {
+    const tmdbKey = TMDBClient.apiKey;
     return {
       tmdb: {
-        configured: Boolean(process.env.TMDB_API_KEY),
-        key_preview: process.env.TMDB_API_KEY ? `${process.env.TMDB_API_KEY.substring(0, 4)}...` : null,
+        configured: Boolean(tmdbKey),
+        key_preview: tmdbKey ? `${tmdbKey.substring(0, 4)}...` : null,
       },
       tvdb: {
         configured: Boolean(process.env.TVDB_API_KEY),
@@ -350,14 +451,15 @@ export class MetadataService {
 
     // Search TMDB
     if (provider === 'tmdb' || provider === 'all') {
-      if (process.env.TMDB_API_KEY) {
+      const tmdbKey = TMDBClient.apiKey;
+      if (tmdbKey) {
         try {
           const [movies, tvShows] = await Promise.all([
-            TMDBClient.searchMovies(query),
-            TMDBClient.searchTVShows(query),
+            TMDBClient.searchMovies(query).catch(e => ({ results: [] })),
+            TMDBClient.searchTVShows(query).catch(e => ({ results: [] })),
           ]);
 
-          movies.results?.slice(0, 5).forEach((m: any) => {
+          movies.results?.slice(0, 8).forEach((m: any) => {
             results.push({
               source: 'tmdb',
               type: 'movie',
@@ -365,13 +467,13 @@ export class MetadataService {
               title: m.title,
               original_title: m.original_title,
               year: m.release_date ? m.release_date.split('-')[0] : 'N/A',
-              rating: m.vote_average,
+              rating: Math.round((m.vote_average || 7.0) * 10) / 10,
               poster_url: TMDBClient.getImageUrl(m.poster_path, 'w500'),
               overview: m.overview,
             });
           });
 
-          tvShows.results?.slice(0, 5).forEach((s: any) => {
+          tvShows.results?.slice(0, 8).forEach((s: any) => {
             results.push({
               source: 'tmdb',
               type: 'series',
@@ -379,7 +481,7 @@ export class MetadataService {
               title: s.name,
               original_title: s.original_name,
               year: s.first_air_date ? s.first_air_date.split('-')[0] : 'N/A',
-              rating: s.vote_average,
+              rating: Math.round((s.vote_average || 7.0) * 10) / 10,
               poster_url: TMDBClient.getImageUrl(s.poster_path, 'w500'),
               overview: s.overview,
             });
@@ -413,8 +515,8 @@ export class MetadataService {
         } catch (err: any) {
           errors.push(`TVDB: ${err.message}`);
         }
-      } else {
-        errors.push('TVDB_API_KEY не настроен в .env');
+      } else if (provider === 'tvdb') {
+        errors.push('TVDB_API_KEY не настроен в .env (используйте TMDB поиск)');
       }
     }
 
@@ -512,47 +614,90 @@ export class MetadataService {
   static async autoPopulateFromTMDB(): Promise<number> {
     let addedCount = 0;
     try {
-      const [trending, popularMovies, popularTV] = await Promise.all([
-        TMDBClient.getTrending('all', 'day').catch(() => ({ results: [] })),
-        TMDBClient.fetchTMDB('/movie/popular').catch(() => ({ results: [] })),
-        TMDBClient.fetchTMDB('/tv/popular').catch(() => ({ results: [] }))
+      console.log('[TMDB Auto-Sync] Starting global catalog prefetch from TMDB API...');
+
+      const [
+        trendingDay,
+        trendingWeek,
+        popularMovies1,
+        popularMovies2,
+        topRatedMovies,
+        nowPlaying,
+        upcomingMovies,
+        popularTV1,
+        popularTV2,
+        topRatedTV,
+        sciFiMovies,
+        animeMovies
+      ] = await Promise.all([
+        TMDBClient.getTrending('all', 'day', 1).catch(() => ({ results: [] })),
+        TMDBClient.getTrending('all', 'week', 1).catch(() => ({ results: [] })),
+        TMDBClient.getPopularMovies(1).catch(() => ({ results: [] })),
+        TMDBClient.getPopularMovies(2).catch(() => ({ results: [] })),
+        TMDBClient.getTopRatedMovies(1).catch(() => ({ results: [] })),
+        TMDBClient.getNowPlayingMovies(1).catch(() => ({ results: [] })),
+        TMDBClient.getUpcomingMovies(1).catch(() => ({ results: [] })),
+        TMDBClient.getPopularTV(1).catch(() => ({ results: [] })),
+        TMDBClient.getPopularTV(2).catch(() => ({ results: [] })),
+        TMDBClient.getTopRatedTV(1).catch(() => ({ results: [] })),
+        TMDBClient.discover('movie', 878, 'popularity.desc', 1).catch(() => ({ results: [] })),
+        TMDBClient.discover('movie', 16, 'vote_average.desc', 1).catch(() => ({ results: [] })),
       ]);
 
       const itemsToProcess: Array<{ raw: any; type: 'movie' | 'series' }> = [];
 
-      if (trending.results) {
-        trending.results.forEach((r: any) => {
-          itemsToProcess.push({
-            raw: r,
-            type: r.media_type === 'tv' ? 'series' : 'movie'
-          });
+      const addGroup = (results: any[], defaultType: 'movie' | 'series') => {
+        if (!Array.isArray(results)) return;
+        results.forEach((r: any) => {
+          if (!r || (!r.title && !r.name)) return;
+          const mediaType = r.media_type ? (r.media_type === 'tv' ? 'series' : 'movie') : defaultType;
+          itemsToProcess.push({ raw: r, type: mediaType });
         });
-      }
-      if (popularMovies.results) {
-        popularMovies.results.forEach((r: any) => {
-          itemsToProcess.push({ raw: r, type: 'movie' });
-        });
-      }
-      if (popularTV.results) {
-        popularTV.results.forEach((r: any) => {
-          itemsToProcess.push({ raw: r, type: 'series' });
-        });
-      }
+      };
+
+      addGroup(trendingDay.results, 'movie');
+      addGroup(trendingWeek.results, 'movie');
+      addGroup(popularMovies1.results, 'movie');
+      addGroup(popularMovies2.results, 'movie');
+      addGroup(topRatedMovies.results, 'movie');
+      addGroup(nowPlaying.results, 'movie');
+      addGroup(upcomingMovies.results, 'movie');
+      addGroup(popularTV1.results, 'series');
+      addGroup(popularTV2.results, 'series');
+      addGroup(topRatedTV.results, 'series');
+      addGroup(sciFiMovies.results, 'movie');
+      addGroup(animeMovies.results, 'movie');
+
+      const seenIds = new Set<string>();
 
       for (const item of itemsToProcess) {
         if (!item.raw || (!item.raw.title && !item.raw.name)) continue;
+        const key = `${item.type}-${item.raw.id}`;
+        if (seenIds.has(key)) continue;
+        seenIds.add(key);
+
         const formatted = TMDBClient.convertToContentItem(item.raw, item.type);
 
-        const exists = dbStore.content.some(
+        const existingIdx = dbStore.content.findIndex(
           (c) => c.id === formatted.id || (c.tmdb_id && c.tmdb_id === formatted.tmdb_id)
         );
 
-        if (!exists) {
+        if (existingIdx >= 0) {
+          // Merge missing properties (e.g. genre tags, backdrop)
+          dbStore.content[existingIdx] = {
+            ...formatted,
+            ...dbStore.content[existingIdx],
+            genres: formatted.genres && formatted.genres.length > 0 ? formatted.genres : dbStore.content[existingIdx].genres,
+            poster_url: formatted.poster_url || dbStore.content[existingIdx].poster_url,
+            backdrop_url: formatted.backdrop_url || dbStore.content[existingIdx].backdrop_url
+          };
+        } else {
           dbStore.content.push(formatted);
           addedCount++;
         }
       }
-      console.log(`[TMDB Auto-Sync] Automatically populated ${addedCount} content items from TMDB.`);
+
+      console.log(`[TMDB Auto-Sync] Successfully populated and updated catalog. Total items in DB: ${dbStore.content.length} (New added: ${addedCount})`);
     } catch (err) {
       console.error('[TMDB Auto-Sync] Error auto-populating from TMDB:', err);
     }

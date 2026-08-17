@@ -190,7 +190,7 @@ export const SeriesDetail: React.FC<SeriesDetailProps> = ({
 
   // TorrServer state
   const [torrServerUrl, setTorrServerUrl] = useState<string>(() => {
-    return localStorage.getItem('torrserver_host') || 'http://127.0.0.1:8090';
+    return localStorage.getItem('torrserver_host') || 'http://178.236.240.100:8090';
   });
   const [torrServerStatus, setTorrServerStatus] = useState<'online' | 'offline'>('online');
 
