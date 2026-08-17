@@ -110,7 +110,7 @@ export const HeroShowcase: React.FC<HeroShowcaseProps> = ({
         {/* Meta Header Badges */}
         <div className="flex items-center gap-2.5 mb-3 flex-wrap">
           <span className="px-3 py-1 rounded-lg bg-[#d4b581]/20 text-[#d4b581] font-mono-code text-xs uppercase tracking-wider font-bold border border-[#d4b581]/40">
-            ПРЕМЬЕРА • 4K ULTRA HD
+            {activeItem.is_4k ? '4K UHD' : '1080p FHD'} • МИН. 1080p НА ТОРРЕНТАХ
           </span>
 
           {activeItem.rating_imdb && (

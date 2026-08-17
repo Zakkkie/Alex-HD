@@ -27,14 +27,29 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
 }) => {
   if (!items || items.length === 0) return null;
 
+  const scrollFrameRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (scrollFrameRef.current) return;
+
     const target = e.currentTarget;
-    // Trigger scroll to end when 500px away from the right edge
-    const threshold = 500;
-    const isNearEnd = target.scrollWidth - target.scrollLeft - target.clientWidth < threshold;
-    if (isNearEnd && onScrollToEnd) {
-      onScrollToEnd();
-    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      // Trigger scroll to end when 500px away from the right edge
+      const threshold = 500;
+      const isNearEnd = target.scrollWidth - target.scrollLeft - target.clientWidth < threshold;
+      if (isNearEnd && onScrollToEnd) {
+        onScrollToEnd();
+      }
+      scrollFrameRef.current = null;
+    });
   };
 
   return (

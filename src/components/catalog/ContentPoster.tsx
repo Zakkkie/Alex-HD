@@ -88,12 +88,12 @@ export const ContentPoster: React.FC<ContentPosterProps> = ({
         e.stopPropagation();
         onSelect(item);
       }}
-      className={`relative flex-shrink-0 ${widthClass || 'w-[15.5rem] sm:w-[17.5rem] md:w-[19.5rem] lg:w-[21.5rem]'} ${originClass} cursor-pointer transition-all duration-300 outline-none select-none group ${
+      className={`relative flex-shrink-0 ${widthClass || 'w-[15.5rem] sm:w-[17.5rem] md:w-[19.5rem] lg:w-[21.5rem]'} ${originClass} cursor-pointer transition-transform duration-300 ease-out outline-none select-none group ${
         isFocused ? 'scale-[1.04] z-30' : 'hover:scale-[1.01] hover:z-10'
       }`}
     >
       {/* Frame Container */}
-      <div className={`relative aspect-video w-full overflow-hidden rounded-2xl mb-3 bg-[#141312] border transition-all duration-300 ${
+      <div className={`relative aspect-video w-full overflow-hidden rounded-2xl mb-3 bg-[#141312] border transition-[border-color,box-shadow] duration-300 ease-out ${
         isFocused
           ? 'border-[#d4b581] shadow-[0_0_30px_rgba(212,181,129,0.5)] ring-2 ring-[#d4b581]'
           : 'border-[#f5f3ef]/15 group-hover:border-[#d4b581]/60'
@@ -102,7 +102,7 @@ export const ContentPoster: React.FC<ContentPosterProps> = ({
           src={imgSrc}
           alt={item.title}
           onError={handleImageError}
-          className={`w-full h-full object-cover transition-all duration-500 ${
+          className={`w-full h-full object-cover transition-[transform,filter] duration-500 ease-out ${
             isFocused ? 'scale-105 filter brightness-100' : 'filter brightness-[0.88] group-hover:scale-105 group-hover:brightness-100'
           }`}
         />
@@ -127,7 +127,7 @@ export const ContentPoster: React.FC<ContentPosterProps> = ({
 
         {/* Focus / Hover Short Description Overlay on Dark Semi-Transparent Backdrop */}
         <div
-          className={`absolute inset-0 bg-[#0a0a09]/90 backdrop-blur-md p-3.5 sm:p-4 flex flex-col justify-between transition-all duration-300 z-20 ${
+          className={`absolute inset-0 bg-[#0a0a09]/90 backdrop-blur-md p-3.5 sm:p-4 flex flex-col justify-between transition-opacity duration-300 ease-out z-20 ${
             isFocused ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
           }`}
         >
@@ -168,7 +168,7 @@ export const ContentPoster: React.FC<ContentPosterProps> = ({
         {progressPercent !== undefined && progressPercent > 0 && (
           <div className="absolute bottom-0 left-0 right-0 h-[4px] bg-white/20">
             <div
-              className="h-full bg-[#d4b581] transition-all duration-300"
+              className="h-full bg-[#d4b581] transition-[width] duration-300 ease-out"
               style={{ width: `${Math.min(100, progressPercent)}%` }}
             />
           </div>

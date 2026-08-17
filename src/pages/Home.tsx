@@ -27,18 +27,41 @@ export const Home: React.FC<HomeProps> = ({
   const [rowPages, setRowPages] = useState<Record<string, number>>({});
   const [rowLoading, setRowLoading] = useState<Record<string, boolean>>({});
 
+  // Synchronous lock ref to prevent parallel duplicate API calls on fast scroll triggers
+  const fetchingRowsRef = React.useRef<Record<string, boolean>>({});
+
   const heroPlaylist = React.useMemo(() => {
     if (!data) return [];
     const list: ContentItem[] = [];
-    if (data.hero) list.push(data.hero);
-    if (data.trending24h && data.trending24h.length > 0) {
-      data.trending24h.forEach((item) => {
-        if (!list.some((i) => i.id === item.id)) {
-          list.push(item);
-        }
-      });
-    }
-    return list.slice(0, 6);
+    
+    // We want a high-quality selection of movies, series, and anime.
+    // Let's gather items from multiple rows to make a rich, relevant pool.
+    const pool: ContentItem[] = [];
+    if (data.hero) pool.push(data.hero);
+    if (data.newReleases) pool.push(...data.newReleases);
+    if (data.trending24h) pool.push(...data.trending24h);
+    if (data.anime) pool.push(...data.anime);
+    if (data.popular) pool.push(...data.popular);
+
+    // De-duplicate items by id
+    const seen = new Set<string>();
+    pool.forEach((item) => {
+      if (item && !seen.has(item.id)) {
+        seen.add(item.id);
+        list.push(item);
+      }
+    });
+
+    // Sort primarily by release year descending (newest), then by IMDb rating descending
+    list.sort((a, b) => {
+      if (b.release_year !== a.release_year) {
+        return b.release_year - a.release_year;
+      }
+      return b.rating_imdb - a.rating_imdb;
+    });
+
+    // Show up to 15 items (more than the original limit of 6)
+    return list.slice(0, 15);
   }, [data]);
 
   const filterItems = (items: ContentItem[]) => {
@@ -95,9 +118,10 @@ export const Home: React.FC<HomeProps> = ({
 
   // Load more function triggered by scroll-to-end detection
   const handleLoadMore = async (rowId: string) => {
-    if (rowLoading[rowId]) return;
+    if (fetchingRowsRef.current[rowId] || rowLoading[rowId]) return;
     if (rowId === 'continue') return;
 
+    fetchingRowsRef.current[rowId] = true;
     const currentPage = rowPages[rowId] || 1;
     const nextPage = currentPage + 1;
 
@@ -134,6 +158,7 @@ export const Home: React.FC<HomeProps> = ({
         sortBy = 'popularity';
         break;
       default:
+        fetchingRowsRef.current[rowId] = false;
         return;
     }
 
@@ -170,6 +195,7 @@ export const Home: React.FC<HomeProps> = ({
     } catch (err) {
       console.warn(`[Home.tsx] Failed to load more items for ${rowId}:`, err);
     } finally {
+      fetchingRowsRef.current[rowId] = false;
       setRowLoading(prev => ({ ...prev, [rowId]: false }));
     }
   };
