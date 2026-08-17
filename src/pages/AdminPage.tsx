@@ -29,7 +29,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  BookOpen
+  BookOpen,
+  Sliders
 } from 'lucide-react';
 import { adminStore, SUBSCRIPTION_PLANS } from '../data/adminStore';
 import {
@@ -110,6 +111,82 @@ export const AdminPage: React.FC = () => {
   const [manualStream, setManualStream] = useState('');
   const [manualPoster, setManualPoster] = useState('');
 
+  const [tmdbKeyInput, setTmdbKeyInput] = useState('');
+  const [isUpdatingKey, setIsUpdatingKey] = useState(false);
+  const [keyUpdateError, setKeyUpdateError] = useState<string | null>(null);
+  const [keyUpdateSuccess, setKeyUpdateSuccess] = useState<string | null>(null);
+  const [showKeyForm, setShowKeyForm] = useState(false);
+
+  const [torrServerUrlInput, setTorrServerUrlInput] = useState('');
+  const [prowlarrUrlInput, setProwlarrUrlInput] = useState('');
+  const [prowlarrKeyInput, setProwlarrKeyInput] = useState('');
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  const [settingsUpdateError, setSettingsUpdateError] = useState<string | null>(null);
+  const [settingsUpdateSuccess, setSettingsUpdateSuccess] = useState<string | null>(null);
+  const [showSettingsForm, setShowSettingsForm] = useState(false);
+
+  const loadSettings = async () => {
+    try {
+      const data = await api.getAdminSettings();
+      setTorrServerUrlInput(data.torrServerUrl || '');
+      setProwlarrUrlInput(data.prowlarrUrl || '');
+      setProwlarrKeyInput(data.prowlarrKey || '');
+    } catch (err: any) {
+      console.warn('Failed to load system settings:', err);
+    }
+  };
+
+  const handleUpdateSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingSettings(true);
+    setSettingsUpdateError(null);
+    setSettingsUpdateSuccess(null);
+    try {
+      const res = await api.updateAdminSettings({
+        torrServerUrl: torrServerUrlInput.trim(),
+        prowlarrUrl: prowlarrUrlInput.trim(),
+        prowlarrKey: prowlarrKeyInput.trim()
+      });
+      if (res.success) {
+        setSettingsUpdateSuccess(res.message || 'Настройки сохранены!');
+        setShowSettingsForm(false);
+      } else {
+        setSettingsUpdateError(res.message || 'Не удалось сохранить настройки');
+      }
+    } catch (err: any) {
+      setSettingsUpdateError(err.message || 'Ошибка обновления настроек');
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleUpdateTMDBKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tmdbKeyInput.trim()) {
+      setKeyUpdateError('Пожалуйста, введите API ключ TMDB.');
+      return;
+    }
+    setIsUpdatingKey(true);
+    setKeyUpdateError(null);
+    setKeyUpdateSuccess(null);
+    try {
+      const res = await api.updateTMDBKey(tmdbKeyInput);
+      if (res.success) {
+        setKeyUpdateSuccess(res.message || 'Ключ успешно обновлен!');
+        setTmdbKeyInput('');
+        setShowKeyForm(false);
+        // Refresh metadata status
+        loadMetadataStatus();
+      } else {
+        setKeyUpdateError(res.message || 'Не удалось обновить ключ');
+      }
+    } catch (err: any) {
+      setKeyUpdateError(err.message || 'Ошибка обновления ключа');
+    } finally {
+      setIsUpdatingKey(false);
+    }
+  };
+
   // Load Real Admin Data from backend
   const loadData = async () => {
     setIsRefreshingNodes(true);
@@ -184,6 +261,7 @@ export const AdminPage: React.FC = () => {
   useEffect(() => {
     loadData();
     loadMetadataStatus();
+    loadSettings();
 
     const interval = setInterval(() => {
       loadData();
@@ -1029,19 +1107,68 @@ export const AdminPage: React.FC = () => {
         <div className="space-y-6 animate-[fadeIn_0.2s_ease-out]">
           {/* API Status Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-mono">
-            <div className="p-4 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-2xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Film className="w-5 h-5 text-[#d4b581]" />
-                <div>
-                  <h4 className="text-xs font-bold text-white">TMDB Metadata API</h4>
-                  <p className="text-[10px] text-[#e6e3df]/50">
-                    {metadataStatus?.tmdb?.configured ? `Ключ: ${metadataStatus.tmdb.key_preview}` : 'Авторизован в ядре'}
-                  </p>
+            <div className="p-4 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-2xl flex flex-col justify-between gap-3">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <Film className="w-5 h-5 text-[#d4b581]" />
+                  <div>
+                    <h4 className="text-xs font-bold text-white">TMDB Metadata API</h4>
+                    <p className="text-[10px] text-[#e6e3df]/50">
+                      {metadataStatus?.tmdb?.configured ? `Ключ: ${metadataStatus.tmdb.key_preview}` : 'Авторизован в ядре'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setShowKeyForm(!showKeyForm);
+                      setKeyUpdateError(null);
+                      setKeyUpdateSuccess(null);
+                    }}
+                    className="px-2.5 py-1 text-[10px] uppercase font-bold bg-[#171615] hover:bg-[#22211f] border border-[#e6e3df]/15 text-[#d4b581] rounded-lg cursor-pointer transition-all"
+                  >
+                    {showKeyForm ? 'Скрыть' : 'Изменить'}
+                  </button>
+                  <span className="flex items-center gap-1 text-emerald-400 text-[10px] uppercase font-bold bg-emerald-950/40 px-2 py-1 border border-emerald-500/30 rounded-lg">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Активно
+                  </span>
                 </div>
               </div>
-              <span className="flex items-center gap-1 text-emerald-400 text-[10px] uppercase font-bold bg-emerald-950/40 px-2 py-1 border border-emerald-500/30 rounded-lg">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Активно
-              </span>
+
+              {showKeyForm && (
+                <form onSubmit={handleUpdateTMDBKey} className="mt-2 pt-3 border-t border-[#e6e3df]/10 space-y-2">
+                  <div className="text-[10px] text-[#e6e3df]/60 mb-1 leading-normal">
+                    Обновите API-ключ v3 (32-символьный hex) для синхронизации метаданных и поиска:
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Вставьте ваш TMDB API Key v3..."
+                      value={tmdbKeyInput}
+                      onChange={(e) => setTmdbKeyInput(e.target.value)}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="flex-1 px-3 py-1.5 bg-[#171615] border border-[#e6e3df]/20 rounded-lg text-white text-[11px] outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isUpdatingKey}
+                      className="px-3 py-1.5 bg-[#d4b581] hover:bg-[#c4a571] text-black font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50 transition-all"
+                    >
+                      {isUpdatingKey ? 'Проверка...' : 'Сохранить'}
+                    </button>
+                  </div>
+                  {keyUpdateError && (
+                    <div className="text-[10px] text-red-400 font-bold flex items-center gap-1 leading-normal">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" /> {keyUpdateError}
+                    </div>
+                  )}
+                  {keyUpdateSuccess && (
+                    <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1 leading-normal">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> {keyUpdateSuccess}
+                    </div>
+                  )}
+                </form>
+              )}
             </div>
 
             <div className="p-4 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-2xl flex items-center justify-between">
@@ -1055,6 +1182,89 @@ export const AdminPage: React.FC = () => {
               <span className="flex items-center gap-1 text-emerald-400 text-[10px] uppercase font-bold bg-emerald-950/40 px-2 py-1 border border-emerald-500/30 rounded-lg">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Готов
               </span>
+            </div>
+
+            <div className="p-4 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-2xl space-y-4 col-span-1 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Sliders className="w-5 h-5 text-amber-400" />
+                  <div>
+                    <h4 className="text-xs font-bold text-white">Параметры Prowlarr и TorrServer</h4>
+                    <p className="text-[10px] text-[#e6e3df]/50">Настройки P2P-поисковика и адреса по умолчанию для воспроизведения</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsForm(!showSettingsForm)}
+                  className="px-3 py-1 bg-white/5 hover:bg-white/10 border border-[#e6e3df]/20 text-white font-bold text-[10px] uppercase tracking-wider rounded-lg cursor-pointer transition-all"
+                >
+                  {showSettingsForm ? 'Скрыть' : 'Настроить'}
+                </button>
+              </div>
+
+              {showSettingsForm && (
+                <form onSubmit={handleUpdateSettings} className="space-y-3 pt-3 border-t border-[#e6e3df]/10 animate-[fadeIn_0.2s_ease-out]">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] text-[#e6e3df]/60 font-bold uppercase block mb-1">Адрес TorrServer ноды (Default Node)</label>
+                      <input
+                        type="text"
+                        placeholder="http://178.236.240.100:8090"
+                        value={torrServerUrlInput}
+                        onChange={(e) => setTorrServerUrlInput(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className="w-full px-3 py-1.5 bg-[#171615] border border-[#e6e3df]/20 rounded-lg text-white text-[11px] outline-none font-mono"
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] text-[#e6e3df]/60 font-bold uppercase block mb-1">Адрес Prowlarr URL</label>
+                        <input
+                          type="text"
+                          placeholder="http://localhost:9696"
+                          value={prowlarrUrlInput}
+                          onChange={(e) => setProwlarrUrlInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="w-full px-3 py-1.5 bg-[#171615] border border-[#e6e3df]/20 rounded-lg text-white text-[11px] outline-none font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-[#e6e3df]/60 font-bold uppercase block mb-1">Prowlarr API Key</label>
+                        <input
+                          type="password"
+                          placeholder="API Ключ Prowlarr..."
+                          value={prowlarrKeyInput}
+                          onChange={(e) => setProwlarrKeyInput(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="w-full px-3 py-1.5 bg-[#171615] border border-[#e6e3df]/20 rounded-lg text-white text-[11px] outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={isUpdatingSettings}
+                      className="px-4 py-2 bg-[#d4b581] hover:bg-[#c4a571] text-black font-bold text-[11px] rounded-lg cursor-pointer disabled:opacity-50 transition-all uppercase tracking-wider"
+                    >
+                      {isUpdatingSettings ? 'Сохранение...' : 'Сохранить настройки'}
+                    </button>
+                  </div>
+
+                  {settingsUpdateError && (
+                    <div className="text-[10px] text-red-400 font-bold flex items-center gap-1 leading-normal">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" /> {settingsUpdateError}
+                    </div>
+                  )}
+                  {settingsUpdateSuccess && (
+                    <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1 leading-normal">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> {settingsUpdateSuccess}
+                    </div>
+                  )}
+                </form>
+              )}
             </div>
           </div>
 

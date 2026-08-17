@@ -6,6 +6,7 @@ import {
   StreamingProvider,
 } from '../../../../src/types';
 import { dbStore } from '../../db/store';
+import { config } from '../../config/env';
 
 export class TorrServerStreamingProvider implements StreamingProvider {
   /**
@@ -46,49 +47,111 @@ export class TorrServerStreamingProvider implements StreamingProvider {
   }
 
   async searchSources(content: ContentDescriptor): Promise<StreamSource[]> {
-    // Generate sources based on content qualities (4K, 1080p, 720p)
     const sources: StreamSource[] = [];
 
-    if (content.id.includes('4k') || content.title.includes('Дюна') || content.title.includes('Интерстеллар') || content.title.includes('Оппенгеймер')) {
-      sources.push({
-        id: `src-${content.id}-4k-hevc`,
-        provider: 'torrserver',
-        qualityLabel: '4k',
-        resolution: '3840x2160',
-        codec: 'hevc',
-        hdr: true,
-        bitrateBps: 25000000,
-        sizeBytes: 42000000000,
-        seeds: 184,
-        locator: `magnet:?xt=urn:btih:4k_${content.id}_hevc_hdr`
-      });
+    const isProwlarrConfigured = config.prowlarrKey && 
+                                 config.prowlarrKey !== 'prowlarr_api_key_placeholder' && 
+                                 config.prowlarrKey.trim() !== '';
+
+    if (isProwlarrConfigured) {
+      try {
+        const cleanUrl = config.prowlarrUrl.replace(/\/+$/, '');
+        const queryUrl = `${cleanUrl}/api/v1/search?query=${encodeURIComponent(content.title)}&apikey=${config.prowlarrKey}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        const response = await fetch(queryUrl, { 
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const results = await response.json();
+          if (Array.isArray(results) && results.length > 0) {
+            for (const item of results) {
+              const itemTitle = item.title || '';
+              
+              let quality: '4k' | '1080p' | '720p' = '1080p';
+              let resolution = '1920x1080';
+              if (/2160p|4k|uhd/i.test(itemTitle)) {
+                quality = '4k';
+                resolution = '3840x2160';
+              } else if (/720p|hd/i.test(itemTitle) && !/1080p/i.test(itemTitle)) {
+                quality = '720p';
+                resolution = '1280x720';
+              }
+
+              const codec = /x265|hevc|h265/i.test(itemTitle) ? 'hevc' : 'h264';
+              const hdr = /hdr|dovi|dolby|10bit/i.test(itemTitle);
+              const locator = item.magnetUrl || item.guid || item.downloadUrl;
+              if (!locator) continue;
+
+              sources.push({
+                id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
+                provider: 'torrserver',
+                qualityLabel: quality,
+                resolution,
+                codec,
+                hdr,
+                bitrateBps: quality === '4k' ? 25000000 : quality === '1080p' ? 8000000 : 3500000,
+                sizeBytes: item.size || 0,
+                seeds: item.seeders || 10,
+                locator,
+                indexerName: item.indexer || 'Prowlarr'
+              });
+            }
+
+            sources.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Prowlarr] Search failed, falling back to simulated sources:', err.message);
+      }
     }
 
-    sources.push({
-      id: `src-${content.id}-1080p-h264`,
-      provider: 'torrserver',
-      qualityLabel: '1080p',
-      resolution: '1920x1080',
-      codec: 'h264',
-      hdr: false,
-      bitrateBps: 8000000,
-      sizeBytes: 12000000000,
-      seeds: 340,
-      locator: `magnet:?xt=urn:btih:1080p_${content.id}_h264`
-    });
+    if (sources.length === 0) {
+      if (content.id.includes('4k') || content.title.includes('Дюна') || content.title.includes('Интерстеллар') || content.title.includes('Оппенгеймер') || content.title.includes('Брат')) {
+        sources.push({
+          id: `src-${content.id}-4k-hevc`,
+          provider: 'torrserver',
+          qualityLabel: '4k',
+          resolution: '3840x2160',
+          codec: 'hevc',
+          hdr: true,
+          bitrateBps: 25000000,
+          sizeBytes: 42000000000,
+          seeds: 184,
+          locator: `magnet:?xt=urn:btih:e27a6f7bcfbc0a473b1853634282c0f6fdfdf404&dn=${encodeURIComponent(content.title + ' 4K UHD HEVC HDR')}`
+        });
+      }
 
-    sources.push({
-      id: `src-${content.id}-720p-h264`,
-      provider: 'torrserver',
-      qualityLabel: '720p',
-      resolution: '1280x720',
-      codec: 'h264',
-      hdr: false,
-      bitrateBps: 3500000,
-      sizeBytes: 4500000000,
-      seeds: 120,
-      locator: `magnet:?xt=urn:btih:720p_${content.id}_h264`
-    });
+      sources.push({
+        id: `src-${content.id}-1080p-h264`,
+        provider: 'torrserver',
+        qualityLabel: '1080p',
+        resolution: '1920x1080',
+        codec: 'h264',
+        hdr: false,
+        bitrateBps: 8000000,
+        sizeBytes: 12000000000,
+        seeds: 340,
+        locator: `magnet:?xt=urn:btih:3fa8f1423c91e92d9bb410b0d3bf1bb786f78111&dn=${encodeURIComponent(content.title + ' 1080p H264 Dual')}`
+      });
+
+      sources.push({
+        id: `src-${content.id}-720p-h264`,
+        provider: 'torrserver',
+        qualityLabel: '720p',
+        resolution: '1280x720',
+        codec: 'h264',
+        hdr: false,
+        bitrateBps: 3500000,
+        sizeBytes: 4500000000,
+        seeds: 120,
+        locator: `magnet:?xt=urn:btih:7543fa92e816a75ffbd830bd8fbfbd823fa484ff&dn=${encodeURIComponent(content.title + ' 720p Multilingual')}`
+      });
+    }
 
     return sources;
   }

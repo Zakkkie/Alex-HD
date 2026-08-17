@@ -303,6 +303,7 @@ export interface StreamSource {
   sizeBytes: number;
   seeds: number;
   locator: string;
+  indexerName?: string;
 }
 
 export interface PlaybackSession {

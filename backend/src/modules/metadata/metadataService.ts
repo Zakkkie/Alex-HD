@@ -35,8 +35,15 @@ export const TMDB_GENRE_MAP: Record<number, string> = {
  * TMDB API Client (The Movie Database v3/v4 API)
  */
 export class TMDBClient {
+  public static customKey: string | null = null;
+
+  public static setApiKey(key: string) {
+    this.customKey = key.trim();
+    process.env.TMDB_API_KEY = key.trim();
+  }
+
   public static get apiKey(): string {
-    return process.env.TMDB_API_KEY || '4e44d9029b1270a757cddc766a1bcb63';
+    return this.customKey || process.env.TMDB_API_KEY || '4e44d9029b1270a757cddc766a1bcb63';
   }
 
   private static get baseUrl(): string {
@@ -57,7 +64,7 @@ export class TMDBClient {
   public static async fetchTMDB(endpoint: string, params: Record<string, string> = {}) {
     const key = this.apiKey;
     if (!key) {
-      throw new Error('TMDB_API_KEY_MISSING: Укажите TMDB_API_KEY в .env');
+      throw new Error('TMDB_API_KEY_MISSING: Укажите TMDB_API_KEY в панели управления');
     }
 
     const queryParams = new URLSearchParams({
@@ -67,13 +74,24 @@ export class TMDBClient {
     });
 
     const url = `${this.baseUrl}${endpoint}?${queryParams.toString()}`;
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+    } catch (fetchErr: any) {
+      throw new Error(`TMDB_NETWORK_ERROR: Ошибка соединения с api.themoviedb.org (${fetchErr.message || 'Сеть недоступна'})`);
+    }
 
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error(`TMDB_API_ERROR: HTTP 401 Unauthorized — Недействительный или заблокированный TMDB API ключ. Введите новый ключ в панеле администрирования.`);
+      }
+      if (response.status === 429) {
+        throw new Error(`TMDB_API_ERROR: HTTP 429 Rate Limit — Превышен лимит запросов к TMDB API. Повторите попытку позже.`);
+      }
       throw new Error(`TMDB_API_ERROR: HTTP ${response.status} - ${response.statusText}`);
     }
 
@@ -704,7 +722,7 @@ export class MetadataService {
     return {
       tmdb: {
         configured: Boolean(tmdbKey),
-        key_preview: tmdbKey ? `${tmdbKey.substring(0, 4)}...` : null,
+        key_preview: tmdbKey ? `${tmdbKey.substring(0, 4)}...${tmdbKey.slice(-4)}` : null,
       },
       tvdb: {
         configured: Boolean(process.env.TVDB_API_KEY),
@@ -712,6 +730,38 @@ export class MetadataService {
       },
       syncState: this.getSyncProgress()
     };
+  }
+
+  /**
+   * Dynamically validate and update TMDB API key
+   */
+  static async updateTMDBKey(newApiKey: string): Promise<{ success: boolean; message: string; keyPreview?: string }> {
+    const cleanKey = newApiKey.trim();
+    if (!cleanKey) {
+      throw new Error('Укажите ключ API TMDB.');
+    }
+
+    try {
+      const res = await fetch(`https://api.themoviedb.org/3/configuration?api_key=${cleanKey}`);
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('TMDB вернул HTTP 401 Unauthorized: Введенный API ключ недействителен.');
+        }
+        throw new Error(`TMDB вернул ошибку HTTP ${res.status}: ${res.statusText}`);
+      }
+      const data = await res.json();
+      if (data && data.images) {
+        TMDBClient.setApiKey(cleanKey);
+        return {
+          success: true,
+          message: 'TMDB API ключ успешно проверен и обновлен!',
+          keyPreview: `${cleanKey.substring(0, 4)}...${cleanKey.slice(-4)}`
+        };
+      }
+      throw new Error('Некорректный ответ от TMDB API.');
+    } catch (err: any) {
+      throw new Error(err.message || 'Ошибка проверки ключа TMDB.');
+    }
   }
 
   /**

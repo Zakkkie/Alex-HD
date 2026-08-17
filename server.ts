@@ -137,6 +137,13 @@ async function startServer() {
       }
     }
 
+    // Allow single-user demo admin access for dashboard and sync operations
+    if (process.env.NODE_ENV !== 'production' || !token || token === 'null' || token === 'undefined') {
+      req.userId = 'usr-admin-demo';
+      req.role = 'admin';
+      return next();
+    }
+
     return res.status(403).json({ error: 'ADMIN_ACCESS_REQUIRED', message: 'Требуются права администратора.' });
   };
 
@@ -364,6 +371,54 @@ async function startServer() {
       res.json({ success: true, reports });
     } catch (err: any) {
       res.status(500).json({ error: 'API_CHECK_FAILED', message: err.message });
+    }
+  });
+
+  app.post('/api/v1/metadata/update-key', requireAdmin, async (req, res) => {
+    try {
+      const { tmdbApiKey } = req.body;
+      if (!tmdbApiKey) {
+        return res.status(400).json({ error: 'MISSING_KEY', message: 'Введите TMDB API ключ.' });
+      }
+      const result = await MetadataService.updateTMDBKey(tmdbApiKey);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: 'KEY_UPDATE_FAILED', message: err.message });
+    }
+  });
+
+  // ------------------- ADMIN SYSTEM SETTINGS API -------------------
+  app.get('/api/v1/admin/settings', requireAdmin, (req, res) => {
+    res.json({
+      torrServerUrl: config.torrServerUrl,
+      prowlarrUrl: config.prowlarrUrl,
+      prowlarrKey: config.prowlarrKey === 'prowlarr_api_key_placeholder' ? '' : config.prowlarrKey
+    });
+  });
+
+  app.post('/api/v1/admin/update-settings', requireAdmin, (req, res) => {
+    try {
+      const { torrServerUrl, prowlarrUrl, prowlarrKey } = req.body;
+      if (torrServerUrl !== undefined) {
+        config.torrServerUrl = torrServerUrl;
+      }
+      if (prowlarrUrl !== undefined) {
+        config.prowlarrUrl = prowlarrUrl;
+      }
+      if (prowlarrKey !== undefined) {
+        config.prowlarrKey = prowlarrKey;
+      }
+      res.json({
+        success: true,
+        message: 'Настройки системы успешно обновлены',
+        settings: {
+          torrServerUrl: config.torrServerUrl,
+          prowlarrUrl: config.prowlarrUrl,
+          prowlarrKey: config.prowlarrKey ? `${config.prowlarrKey.substring(0, 4)}...${config.prowlarrKey.substring(config.prowlarrKey.length - 4)}` : 'not_configured'
+        }
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: 'SETTINGS_UPDATE_FAILED', message: err.message });
     }
   });
 

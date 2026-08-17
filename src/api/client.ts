@@ -747,6 +747,41 @@ export const api = {
     return safeJson(res, { success: false, reports: [] });
   },
 
+  async updateTMDBKey(tmdbApiKey: string): Promise<{ success: boolean; message: string; keyPreview?: string }> {
+    const res = await fetch(getUrl('/api/v1/metadata/update-key'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({ tmdbApiKey })
+    });
+    const data = await safeJson(res, null);
+    if (!res.ok) {
+      throw new Error(data?.message || data?.error || 'Не удалось обновить TMDB API ключ');
+    }
+    return data;
+  },
+
+  async getAdminSettings(): Promise<{ torrServerUrl: string; prowlarrUrl: string; prowlarrKey: string }> {
+    const res = await fetch(getUrl('/api/v1/admin/settings'), { headers: defaultHeaders() });
+    const data = await safeJson(res, null);
+    if (!res.ok) {
+      throw new Error(data?.message || data?.error || 'Не удалось загрузить настройки системы');
+    }
+    return data;
+  },
+
+  async updateAdminSettings(settings: { torrServerUrl?: string; prowlarrUrl?: string; prowlarrKey?: string }): Promise<{ success: boolean; message: string; settings: any }> {
+    const res = await fetch(getUrl('/api/v1/admin/update-settings'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify(settings)
+    });
+    const data = await safeJson(res, null);
+    if (!res.ok) {
+      throw new Error(data?.message || data?.error || 'Не удалось обновить настройки системы');
+    }
+    return data;
+  },
+
   async getPerson(idOrName: string | number, onBackgroundUpdate?: (freshData: any) => void): Promise<any> {
     const cacheKey = `person_${encodeURIComponent(idOrName)}`;
     const cached = LocalStorageCache.get<any>(cacheKey);
