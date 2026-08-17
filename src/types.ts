@@ -179,6 +179,7 @@ export interface ContentItem {
   backdrop_url: string;
   is_4k: boolean;
   is_published: boolean;
+  is_hero?: boolean;
   play_count: number;
   genres?: string[];
   country?: string;
@@ -331,6 +332,7 @@ export interface NodeHealthStatus {
 
 export interface HomePayload {
   hero: ContentItem;
+  heroItems?: ContentItem[];
   continueWatching: WatchHistoryItem[];
   trending24h: ContentItem[];
   popular: ContentItem[];

@@ -695,6 +695,14 @@ export const api = {
     return safeJson(res, { success: true, item: contentData });
   },
 
+  async toggleHeroContentItem(id: string): Promise<any> {
+    const res = await fetch(getUrl(`/api/v1/admin/content/${id}/toggle-hero`), {
+      method: 'POST',
+      headers: defaultHeaders()
+    });
+    return safeJson(res, { success: true });
+  },
+
   async getMetadataStatus(): Promise<{
     tmdb: { configured: boolean; key_preview: string | null };
     tvdb: { configured: boolean; key_preview: string | null };

@@ -711,6 +711,16 @@ async function startServer() {
     res.json({ success: true, transaction: tx });
   });
 
+  app.post('/api/v1/admin/content/:id/toggle-hero', requireAdmin, (req, res) => {
+    const item = dbStore.content.find(c => c.id === req.params.id);
+    if (!item) {
+      return res.status(404).json({ error: 'CONTENT_NOT_FOUND', message: 'Контент не найден в каталоге' });
+    }
+    item.is_hero = !item.is_hero;
+    fileLogger.info('AdminService', 'HERO_TOGGLE', `Контент "${item.title}" (${item.id}) ${item.is_hero ? 'добавлен в' : 'удален из'} главной карусели`);
+    res.json({ success: true, is_hero: item.is_hero, item });
+  });
+
   app.post('/api/v1/admin/nodes', requireAdmin, (req, res) => {
     try {
       const node = AdminService.registerNode(req.body);

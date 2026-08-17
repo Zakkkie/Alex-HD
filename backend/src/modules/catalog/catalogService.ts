@@ -49,8 +49,11 @@ export class CatalogService {
       return { ...col, items };
     });
 
+    const heroItems = published.filter(c => c.is_hero === true);
+
     return {
       hero,
+      heroItems,
       continueWatching,
       trending24h,
       popular,

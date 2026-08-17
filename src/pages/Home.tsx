@@ -32,6 +32,12 @@ export const Home: React.FC<HomeProps> = ({
 
   const heroPlaylist = React.useMemo(() => {
     if (!data) return [];
+    
+    // If the admin has set custom hero items, use them directly
+    if (data.heroItems && data.heroItems.length > 0) {
+      return data.heroItems;
+    }
+
     const list: ContentItem[] = [];
     
     // We want a high-quality selection of movies, series, and anime.

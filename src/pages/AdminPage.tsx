@@ -30,7 +30,8 @@ import {
   ChevronDown,
   ChevronUp,
   BookOpen,
-  Sliders
+  Sliders,
+  Star
 } from 'lucide-react';
 import { adminStore, SUBSCRIPTION_PLANS } from '../data/adminStore';
 import {
@@ -124,6 +125,34 @@ export const AdminPage: React.FC = () => {
   const [settingsUpdateError, setSettingsUpdateError] = useState<string | null>(null);
   const [settingsUpdateSuccess, setSettingsUpdateSuccess] = useState<string | null>(null);
   const [showSettingsForm, setShowSettingsForm] = useState(false);
+
+  // Hero Carousel Management State
+  const [localCatalogItems, setLocalCatalogItems] = useState<any[]>([]);
+  const [heroSearch, setHeroSearch] = useState('');
+  const [isLoadingHeroList, setIsLoadingHeroList] = useState(false);
+
+  const loadLocalCatalog = async () => {
+    setIsLoadingHeroList(true);
+    try {
+      const res = await api.getCatalogItems({ page: 1, limit: 150, type: 'all' });
+      if (res && res.items) {
+        setLocalCatalogItems(res.items);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch local catalog items:', e);
+    } finally {
+      setIsLoadingHeroList(false);
+    }
+  };
+
+  const handleToggleHero = async (id: string) => {
+    try {
+      await api.toggleHeroContentItem(id);
+      await loadLocalCatalog();
+    } catch (err: any) {
+      alert(`Ошибка при изменении статуса карусели: ${err.message}`);
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -262,6 +291,7 @@ export const AdminPage: React.FC = () => {
     loadData();
     loadMetadataStatus();
     loadSettings();
+    loadLocalCatalog();
 
     const interval = setInterval(() => {
       loadData();
@@ -1563,6 +1593,161 @@ export const AdminPage: React.FC = () => {
                 Сохранить в каталог
               </button>
             </form>
+          </div>
+
+          {/* 3. УПРАВЛЕНИЕ ГЛАВНОЙ КАРУСЕЛЬЮ */}
+          <div className="p-6 bg-[#0f0e0d] border border-[#e6e3df]/10 rounded-3xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#e6e3df]/10 pb-4">
+              <div className="flex items-center gap-3">
+                <Star className="w-6 h-6 text-[#d4b581]" />
+                <div>
+                  <h3 className="text-base font-bold text-white font-mono uppercase">3. Управление Главной Каруселью</h3>
+                  <p className="text-xs text-[#e6e3df]/50 mt-1">
+                    Назначайте фильмы, сериалы и аниме, которые увидят все пользователи на главной странице в основном слайдере.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={loadLocalCatalog}
+                disabled={isLoadingHeroList}
+                className="flex items-center gap-2 px-4 py-2 bg-[#171615] hover:bg-[#22211f] border border-[#e6e3df]/15 text-[#e6e3df]/80 hover:text-white rounded-xl transition-all cursor-pointer disabled:opacity-50 text-xs font-bold"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingHeroList ? 'animate-spin' : ''}`} />
+                Обновить каталог
+              </button>
+            </div>
+
+            {/* Активные элементы карусели */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#d4b581]">
+                  Активные элементы в карусели ({localCatalogItems.filter(item => item.is_hero).length})
+                </h4>
+                <span className="text-[10px] text-[#e6e3df]/40 font-mono">
+                  рекомендуется от 3 до 15 элементов
+                </span>
+              </div>
+
+              {localCatalogItems.filter(item => item.is_hero).length === 0 ? (
+                <div className="p-8 text-center bg-[#171615] border border-[#e6e3df]/5 rounded-2xl">
+                  <p className="text-xs text-[#e6e3df]/40">Карусель пуста. Добавьте элементы с помощью поиска ниже.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {localCatalogItems
+                    .filter(item => item.is_hero)
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-3 bg-[#171615] border border-[#e6e3df]/10 rounded-2xl hover:border-[#d4b581]/30 transition-all gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={item.poster_url || 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=200'}
+                            alt={item.title}
+                            className="w-10 h-14 rounded-lg object-cover bg-neutral-900 flex-shrink-0"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0">
+                            <h5 className="text-xs font-bold text-white truncate">{item.title}</h5>
+                            <p className="text-[10px] text-[#e6e3df]/50 truncate">{item.original_title || item.title}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="text-[9px] uppercase px-1.5 py-0.5 bg-[#d4b581]/10 text-[#d4b581] border border-[#d4b581]/20 rounded font-bold">
+                                {item.type === 'movie' ? 'Фильм' : 'Сериал'}
+                              </span>
+                              <span className="text-[9px] text-white/70 font-bold">
+                                {item.release_year}
+                              </span>
+                              <span className="text-[9px] text-amber-400 font-bold flex items-center gap-0.5">
+                                ★ {item.rating_imdb || item.rating_tmdb || '0.0'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleToggleHero(item.id)}
+                          className="p-2 bg-red-950/20 hover:bg-red-900/30 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-xl transition-all cursor-pointer flex-shrink-0"
+                          title="Удалить из карусели"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+
+            {/* Поиск и добавление новых */}
+            <div className="space-y-3 pt-2">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[#e6e3df]/80 mb-2">
+                  Добавление элементов из каталога
+                </h4>
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#e6e3df]/40" />
+                  <input
+                    type="text"
+                    placeholder="Введите название фильма, сериала или аниме для поиска..."
+                    value={heroSearch}
+                    onChange={(e) => setHeroSearch(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#171615] border border-[#e6e3df]/15 rounded-xl text-white text-xs outline-none focus:border-[#d4b581]/50 transition-all placeholder:text-[#e6e3df]/30"
+                  />
+                </div>
+              </div>
+
+              {heroSearch.trim() && (
+                <div className="bg-[#171615] border border-[#e6e3df]/10 rounded-2xl divide-y divide-[#e6e3df]/10 max-h-72 overflow-y-auto custom-scrollbar">
+                  {(() => {
+                    const filtered = localCatalogItems.filter(item =>
+                      item.title.toLowerCase().includes(heroSearch.toLowerCase()) ||
+                      (item.original_title && item.original_title.toLowerCase().includes(heroSearch.toLowerCase()))
+                    );
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="p-4 text-center text-xs text-[#e6e3df]/40">
+                          Ничего не найдено в локальном каталоге. Пожалуйста, сначала импортируйте контент выше!
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between p-3 hover:bg-[#22211f] transition-all gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <img
+                            src={item.poster_url || 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=200'}
+                            alt={item.title}
+                            className="w-8 h-12 rounded-md object-cover bg-neutral-900 flex-shrink-0"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0">
+                            <h5 className="text-xs font-bold text-white truncate">{item.title}</h5>
+                            <p className="text-[10px] text-[#e6e3df]/40 truncate">
+                              {item.original_title || item.title} • {item.release_year}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleToggleHero(item.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] transition-all cursor-pointer ${
+                            item.is_hero
+                              ? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-400 hover:bg-emerald-900/30'
+                              : 'bg-[#171615] border-[#e6e3df]/15 text-[#d4b581] hover:bg-[#d4b581]/10 hover:border-[#d4b581]/30'
+                          }`}
+                        >
+                          <Star className={`w-3.5 h-3.5 ${item.is_hero ? 'fill-current' : ''}`} />
+                          {item.is_hero ? 'В карусели' : 'Добавить'}
+                        </button>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
