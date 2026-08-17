@@ -45,12 +45,16 @@ export class TorrServerService {
    * Returns REAL online status and telemetry (no fake fallbacks).
    */
   static async testConnection(url: string = this.defaultUrl): Promise<TorrServerStatus> {
-    const cleanUrl = url.replace(/\/+$/, '');
+    let cleanUrl = (url || this.defaultUrl).trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = `http://${cleanUrl}`;
+    }
+    cleanUrl = cleanUrl.replace(/\/+$/, '');
     const startTime = Date.now();
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
 
       const res = await fetch(`${cleanUrl}/echo`, {
         method: 'GET',

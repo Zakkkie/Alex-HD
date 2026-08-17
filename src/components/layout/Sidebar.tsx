@@ -368,7 +368,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {isAdmin && (
               <SidebarItem
                 id="sidebar-admin"
-                label="Узлы и Ноды"
+                label="Управление"
                 icon={Shield}
                 isActive={effectiveTab === 'admin'}
                 isExpanded={isExpanded}

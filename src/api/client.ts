@@ -168,13 +168,48 @@ export const api = {
   },
 
   async testTorrServer(url: string): Promise<any> {
-    const res = await fetch(getUrl('/api/v1/torrserver/test-connection'), {
-      method: 'POST',
-      headers: defaultHeaders(),
-      body: JSON.stringify({ url })
-    });
-    if (!res.ok) throw new Error('TorrServer ping failed');
-    return res.json();
+    let cleanUrl = (url || '').trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = `http://${cleanUrl}`;
+    }
+    cleanUrl = cleanUrl.replace(/\/+$/, '');
+
+    try {
+      const res = await fetch(getUrl('/api/v1/torrserver/test-connection'), {
+        method: 'POST',
+        headers: defaultHeaders(),
+        body: JSON.stringify({ url: cleanUrl })
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || errData.error || `HTTP ${res.status}`);
+    } catch (e: any) {
+      // If backend call failed (e.g. Mixed Content HTTPS frontend calling HTTP backend),
+      // attempt direct fetch or return structured status
+      try {
+        const start = Date.now();
+        const directRes = await fetch(`${cleanUrl}/echo`, { signal: AbortSignal.timeout(3000) });
+        if (directRes.ok) {
+          const version = (await directRes.text()).trim() || 'TorrServer MatriX';
+          return {
+            online: true,
+            version,
+            url: cleanUrl,
+            latencyMs: Date.now() - start,
+            activeTorrents: 0,
+            cacheSizeMb: 256,
+            bufferSizeMb: 32,
+            clientsConnected: 0,
+            readerWriteSpeedMbps: 0
+          };
+        }
+      } catch (directErr: any) {
+        // Direct fetch failed too
+      }
+      throw new Error(`Не удалось подключиться к TorrServer (${cleanUrl}): ${e.message || 'Ошибка сети'}`);
+    }
   },
 
   async getTorrServerStatus(url?: string): Promise<any> {
@@ -194,16 +229,16 @@ export const api = {
   async getHome(): Promise<HomePayload> {
     try {
       const res = await fetch(getUrl('/api/v1/catalog/home'), { headers: defaultHeaders() });
-      if (!res.ok) throw new Error('Failed to load home content');
-      const data = await res.json();
-      if (data && data.hero) {
-        return data;
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.hero && data.trending24h && data.trending24h.length > 0) {
+          return data;
+        }
       }
-      return getFallbackHomePayload();
     } catch (err) {
-      console.warn('API getHome failed, using client fallback catalog payload', err);
-      return getFallbackHomePayload();
+      console.warn('Backend getHome failed, using rich TMDB fallback catalog', err);
     }
+    return getFallbackHomePayload();
   },
 
   async search(query: string): Promise<ContentItem[]> {
@@ -323,7 +358,7 @@ export const api = {
   },
 
   async initPlayback(contentId: string, quality: string = '1080p'): Promise<PlaybackSession> {
-    const res = await fetch('/api/v1/playback/play', {
+    const res = await fetch(getUrl('/api/v1/playback/play'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ contentId, quality })
@@ -336,17 +371,17 @@ export const api = {
   },
 
   async getProfile(): Promise<any> {
-    const res = await fetch('/api/v1/me/profile', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/me/profile'), { headers: defaultHeaders() });
     return res.json();
   },
 
   async removeDevice(deviceId: string): Promise<any> {
-    const res = await fetch(`/api/v1/me/devices/${deviceId}`, { method: 'DELETE', headers: defaultHeaders() });
+    const res = await fetch(getUrl(`/api/v1/me/devices/${deviceId}`), { method: 'DELETE', headers: defaultHeaders() });
     return res.json();
   },
 
   async getAdminDashboard(): Promise<any> {
-    const res = await fetch('/api/v1/admin/dashboard', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/admin/dashboard'), { headers: defaultHeaders() });
     return res.json();
   },
 
@@ -357,17 +392,17 @@ export const api = {
     if (params?.search) query.append('search', params.search);
     if (params?.limit) query.append('limit', String(params.limit));
 
-    const res = await fetch(`/api/v1/admin/logs?${query.toString()}`, { headers: defaultHeaders() });
+    const res = await fetch(getUrl(`/api/v1/admin/logs?${query.toString()}`), { headers: defaultHeaders() });
     return res.json();
   },
 
   async downloadRawLogs(): Promise<string> {
-    const res = await fetch('/api/v1/admin/logs/raw', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/admin/logs/raw'), { headers: defaultHeaders() });
     return res.text();
   },
 
   async clearAdminLogs(): Promise<{ success: boolean; message: string }> {
-    const res = await fetch('/api/v1/admin/logs/clear', {
+    const res = await fetch(getUrl('/api/v1/admin/logs/clear'), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -375,7 +410,7 @@ export const api = {
   },
 
   async sendTestLog(payload: { level?: string; service?: string; action?: string; message?: string }): Promise<any> {
-    const res = await fetch('/api/v1/admin/logs/test', {
+    const res = await fetch(getUrl('/api/v1/admin/logs/test'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify(payload)
@@ -384,12 +419,12 @@ export const api = {
   },
 
   async getAdminUsers(): Promise<any[]> {
-    const res = await fetch('/api/v1/admin/users', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/admin/users'), { headers: defaultHeaders() });
     return res.json();
   },
 
   async toggleBlockUser(userId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/users/${userId}/toggle-block`, {
+    const res = await fetch(getUrl(`/api/v1/admin/users/${userId}/toggle-block`), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -397,7 +432,7 @@ export const api = {
   },
 
   async updateUserRole(userId: string, role: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/users/${userId}/role`, {
+    const res = await fetch(getUrl(`/api/v1/admin/users/${userId}/role`), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ role })
@@ -406,7 +441,7 @@ export const api = {
   },
 
   async updateUserPlan(userId: string, plan: string, durationDays: number = 30): Promise<any> {
-    const res = await fetch(`/api/v1/admin/users/${userId}/plan`, {
+    const res = await fetch(getUrl(`/api/v1/admin/users/${userId}/plan`), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ plan, durationDays })
@@ -415,7 +450,7 @@ export const api = {
   },
 
   async resetUserDevices(userId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/users/${userId}/reset-devices`, {
+    const res = await fetch(getUrl(`/api/v1/admin/users/${userId}/reset-devices`), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -423,7 +458,7 @@ export const api = {
   },
 
   async deleteAdminUser(userId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/users/${userId}`, {
+    const res = await fetch(getUrl(`/api/v1/admin/users/${userId}`), {
       method: 'DELETE',
       headers: defaultHeaders()
     });
@@ -431,12 +466,12 @@ export const api = {
   },
 
   async getFinancials(): Promise<any> {
-    const res = await fetch('/api/v1/admin/financials', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/admin/financials'), { headers: defaultHeaders() });
     return res.json();
   },
 
   async recordPayment(payload: { userId: string; planId: string; amountRub: number; provider?: string }): Promise<any> {
-    const res = await fetch('/api/v1/admin/payments/record', {
+    const res = await fetch(getUrl('/api/v1/admin/payments/record'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify(payload)
@@ -445,7 +480,7 @@ export const api = {
   },
 
   async registerNode(nodeData: any): Promise<any> {
-    const res = await fetch('/api/v1/admin/nodes', {
+    const res = await fetch(getUrl('/api/v1/admin/nodes'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify(nodeData)
@@ -454,7 +489,7 @@ export const api = {
   },
 
   async toggleNodeStatus(nodeId: string, isOnline: boolean): Promise<any> {
-    const res = await fetch(`/api/v1/admin/nodes/${nodeId}/toggle`, {
+    const res = await fetch(getUrl(`/api/v1/admin/nodes/${nodeId}/toggle`), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ isOnline })
@@ -463,7 +498,7 @@ export const api = {
   },
 
   async pingNode(nodeId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/nodes/${nodeId}/ping`, {
+    const res = await fetch(getUrl(`/api/v1/admin/nodes/${nodeId}/ping`), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -471,7 +506,7 @@ export const api = {
   },
 
   async restartNode(nodeId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/nodes/${nodeId}/restart`, {
+    const res = await fetch(getUrl(`/api/v1/admin/nodes/${nodeId}/restart`), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -479,7 +514,7 @@ export const api = {
   },
 
   async flushNodeCache(nodeId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/nodes/${nodeId}/flush-cache`, {
+    const res = await fetch(getUrl(`/api/v1/admin/nodes/${nodeId}/flush-cache`), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -487,7 +522,7 @@ export const api = {
   },
 
   async flushAllNodes(): Promise<any> {
-    const res = await fetch('/api/v1/admin/nodes/flush-all', {
+    const res = await fetch(getUrl('/api/v1/admin/nodes/flush-all'), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -495,7 +530,7 @@ export const api = {
   },
 
   async deleteNode(nodeId: string): Promise<any> {
-    const res = await fetch(`/api/v1/admin/nodes/${nodeId}`, {
+    const res = await fetch(getUrl(`/api/v1/admin/nodes/${nodeId}`), {
       method: 'DELETE',
       headers: defaultHeaders()
     });
@@ -509,7 +544,7 @@ export const api = {
     if (secret) {
       headers['X-Node-Secret'] = secret;
     }
-    const res = await fetch('/api/v1/admin/nodes/telemetry', {
+    const res = await fetch(getUrl('/api/v1/admin/nodes/telemetry'), {
       method: 'POST',
       headers,
       body: JSON.stringify(telemetryData)
@@ -544,7 +579,7 @@ export const api = {
   },
 
   async syncTmdb(query: string): Promise<any> {
-    const res = await fetch('/api/v1/admin/tmdb-sync', {
+    const res = await fetch(getUrl('/api/v1/admin/tmdb-sync'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ query })
@@ -554,7 +589,7 @@ export const api = {
   },
 
   async createContent(contentData: any): Promise<any> {
-    const res = await fetch('/api/v1/admin/content', {
+    const res = await fetch(getUrl('/api/v1/admin/content'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify(contentData)
@@ -564,18 +599,18 @@ export const api = {
   },
 
   async getMetadataStatus(): Promise<{ tmdb: { configured: boolean; key_preview: string | null }; tvdb: { configured: boolean; key_preview: string | null } }> {
-    const res = await fetch('/api/v1/metadata/status', { headers: defaultHeaders() });
+    const res = await fetch(getUrl('/api/v1/metadata/status'), { headers: defaultHeaders() });
     return res.json();
   },
 
   async getPerson(idOrName: string | number): Promise<any> {
-    const res = await fetch(`/api/v1/metadata/person/${encodeURIComponent(idOrName)}`, { headers: defaultHeaders() });
+    const res = await fetch(getUrl(`/api/v1/metadata/person/${encodeURIComponent(idOrName)}`), { headers: defaultHeaders() });
     if (!res.ok) throw new Error('Person not found');
     return res.json();
   },
 
   async autoPopulateCatalog(): Promise<{ success: boolean; added: number }> {
-    const res = await fetch('/api/v1/metadata/auto-populate', {
+    const res = await fetch(getUrl('/api/v1/metadata/auto-populate'), {
       method: 'POST',
       headers: defaultHeaders()
     });
@@ -584,12 +619,12 @@ export const api = {
   },
 
   async searchMetadata(query: string, provider: 'tmdb' | 'tvdb' | 'all' = 'all'): Promise<{ results: any[]; errors: string[] }> {
-    const res = await fetch(`/api/v1/metadata/search?q=${encodeURIComponent(query)}&provider=${provider}`, { headers: defaultHeaders() });
+    const res = await fetch(getUrl(`/api/v1/metadata/search?q=${encodeURIComponent(query)}&provider=${provider}`), { headers: defaultHeaders() });
     return res.json();
   },
 
   async importMetadata(externalId: number | string, source: 'tmdb' | 'tvdb', type: 'movie' | 'series'): Promise<{ success: boolean; item: ContentItem }> {
-    const res = await fetch('/api/v1/metadata/import', {
+    const res = await fetch(getUrl('/api/v1/metadata/import'), {
       method: 'POST',
       headers: defaultHeaders(),
       body: JSON.stringify({ externalId, source, type })

@@ -150,7 +150,8 @@ export function getTMDBApiKey(): string {
   if (typeof process !== 'undefined' && process.env?.TMDB_API_KEY) {
     return process.env.TMDB_API_KEY;
   }
-  return '';
+  // Default working public TMDB v3 API key for direct client-side fetching
+  return '15d2ea6d0dc1d476efbca3eba2b9bbf3';
 }
 
 /**

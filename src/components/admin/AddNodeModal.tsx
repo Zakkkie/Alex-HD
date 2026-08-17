@@ -32,13 +32,19 @@ export const AddNodeModal: React.FC<AddNodeModalProps> = ({ isOpen, onClose, onN
 
     setIsSubmitting(true);
     try {
+      let cleanIp = ip.trim();
+      if (!cleanIp.startsWith('http://') && !cleanIp.startsWith('https://')) {
+        cleanIp = `http://${cleanIp}`;
+      }
+      cleanIp = cleanIp.replace(/\/+$/, '');
+
       const generatedId = `node-${Date.now().toString(36)}`;
       const newNode: Partial<ServerNode> = {
         id: generatedId,
-        name,
+        name: name.trim(),
         type,
-        ip,
-        location: location || 'Локальный дата-центр',
+        ip: cleanIp,
+        location: location.trim() || 'VPS Сервер',
         countryCode: countryCode || 'RU',
         status: 'online',
         cpuUsage: 12,
@@ -56,8 +62,8 @@ export const AddNodeModal: React.FC<AddNodeModalProps> = ({ isOpen, onClose, onN
       // Register via API and store
       await api.registerNode({
         nodeId: generatedId,
-        hostname: ip,
-        region: location,
+        hostname: cleanIp,
+        region: location.trim() || 'VPS',
         bandwidthMbps: (Number(bandwidthGbps) || 2.5) * 1000,
         maxCapacity: 100
       });
