@@ -10,7 +10,7 @@ export const config = {
   tmdbApiKey: process.env.TMDB_API_KEY || '4e44d9029b1270a757cddc766a1bcb63',
   tvdbApiKey: process.env.TVDB_API_KEY || '',
   prowlarrUrl: process.env.PROWLARR_URL || 'http://localhost:9696',
-  prowlarrKey: process.env.PROWLARR_KEY || 'prowlarr_api_key_placeholder',
+  prowlarrKey: process.env.PROWLARR_API_KEY || process.env.PROWLARR_KEY || '',
   appUrl: process.env.APP_URL || 'http://localhost:3000',
   maxDevicesPerUser: 3,
 };

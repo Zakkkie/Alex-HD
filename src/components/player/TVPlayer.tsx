@@ -256,7 +256,14 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
       let friendlyError = 'Не удалось воспроизвести видеопоток.';
       let friendlyDetails = `Код ошибки: ${code}. Описание: ${message}. Убедитесь, что ваш TorrServer онлайн и поддерживает выбранный видео-кодек.`;
 
-      if (code === 3) {
+      // Check for HTTPS -> HTTP mixed content block (the most common cause of error 0 on Vercel)
+      if (window.location.protocol === 'https:' && streamUrl.startsWith('http:')) {
+        friendlyError = 'Блокировка небезопасного контента (Mixed Content Blocked).';
+        friendlyDetails = `Вы открыли сайт по безопасному протоколу HTTPS (на Vercel или в превью), но ваш TorrServer на хосте возвращает HTTP-поток без SSL (${streamUrl}). Браузер блокирует загрузку небезопасных медиа на защищенных сайтах. Чтобы видео воспроизвелось:
+1. Запустите бэкенд и фронтенд на вашем собственном VPS (по HTTP или настроив HTTPS reverse proxy).
+2. Или разрешите в настройках вашего браузера "Небезопасное содержимое" (Insecure content) для данного сайта.
+3. Или перейдите на HTTP-версию сайта, если она доступна.`;
+      } else if (code === 3) {
         friendlyError = 'Ошибка декодирования видео-потока (Decode Error).';
         friendlyDetails = 'Браузер или Smart TV не смогли декодировать этот видеофайл. Обычно это связано с воспроизведением 4K HEVC / HDR на устройстве без аппаратной поддержки этого кодека. Попробуйте выбрать качество 1080p.';
       } else if (code === 4) {
