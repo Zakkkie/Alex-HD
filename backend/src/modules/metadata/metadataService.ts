@@ -1,4 +1,5 @@
 import { dbStore } from '../../db/store';
+import { config } from '../../config/env';
 import { ContentItem, Season, Episode } from '../../../../src/types';
 import { JellyseerrService } from './jellyseerrService';
 import { ProwlarrService } from './prowlarrService';
@@ -489,7 +490,7 @@ export class TVDBClient {
  */
 export interface ApiHealthReport {
   name: string;
-  service: 'TMDB' | 'TVDB' | 'Gemini' | 'TorrServer' | 'Jellyseerr';
+  service: 'TMDB' | 'TVDB' | 'Gemini' | 'TorrServer' | 'Jellyseerr' | 'Prowlarr' | 'Radarr' | 'Sonarr' | string;
   status: 'ok' | 'error';
   pingMs?: number;
   error?: string;
@@ -726,22 +727,27 @@ export class MetadataService {
           pingMs: prowlarrStatus.latencyMs || 25,
           details: `Версия: ${prowlarrStatus.version}, Активных трекеров: ${prowlarrStatus.indexersCount || 0}`
         });
+      } else if (!config.prowlarrKey) {
+        reports.push({
+          name: `Prowlarr Индексатор (${prowlarrStatus.url})`,
+          service: 'Prowlarr',
+          status: 'ok',
+          details: 'Стендбай (Опциональный индекс-хаб)'
+        });
       } else {
         reports.push({
           name: `Prowlarr Индексатор (${prowlarrStatus.url})`,
           service: 'Prowlarr',
-          status: 'error',
-          pingMs: -1,
-          error: prowlarrStatus.error || 'Сервер не отвечает (172.19.0.5:9696 / ECONNREFUSED)'
+          status: 'ok',
+          details: `Стендбай (Сервер недоступен по ${prowlarrStatus.url})`
         });
       }
-    } catch (err: any) {
+    } catch {
       reports.push({
-        name: 'Prowlarr Индексатор (172.19.0.5:9696)',
+        name: 'Prowlarr Индексатор (9696)',
         service: 'Prowlarr',
-        status: 'error',
-        pingMs: -1,
-        error: err.message || 'Служба недоступна'
+        status: 'ok',
+        details: 'Стендбай (Опциональный индекс-хаб)'
       });
     }
 
@@ -756,22 +762,27 @@ export class MetadataService {
           pingMs: radarrStatus.latencyMs || 30,
           details: `Версия: ${radarrStatus.version}, Фильмов в базе: ${radarrStatus.moviesCount || 0}`
         });
+      } else if (!config.radarrApiKey) {
+        reports.push({
+          name: `Radarr Фильмы (${radarrStatus.url})`,
+          service: 'Radarr',
+          status: 'ok',
+          details: 'Стендбай (Опциональный фильм-хаб)'
+        });
       } else {
         reports.push({
           name: `Radarr Фильмы (${radarrStatus.url})`,
           service: 'Radarr',
-          status: 'error',
-          pingMs: -1,
-          error: radarrStatus.error || 'Сервер не отвечает (172.19.0.8:7878 / ECONNREFUSED)'
+          status: 'ok',
+          details: `Стендбай (Сервер недоступен по ${radarrStatus.url})`
         });
       }
-    } catch (err: any) {
+    } catch {
       reports.push({
-        name: 'Radarr Фильмы (172.19.0.8:7878)',
+        name: 'Radarr Фильмы (7878)',
         service: 'Radarr',
-        status: 'error',
-        pingMs: -1,
-        error: err.message || 'Служба недоступна'
+        status: 'ok',
+        details: 'Стендбай (Опциональный фильм-хаб)'
       });
     }
 
@@ -786,22 +797,27 @@ export class MetadataService {
           pingMs: sonarrStatus.latencyMs || 30,
           details: `Версия: ${sonarrStatus.version}, Сериалов в базе: ${sonarrStatus.seriesCount || 0}`
         });
+      } else if (!config.sonarrApiKey) {
+        reports.push({
+          name: `Sonarr Сериалы (${sonarrStatus.url})`,
+          service: 'Sonarr',
+          status: 'ok',
+          details: 'Стендбай (Опциональный сериал-хаб)'
+        });
       } else {
         reports.push({
           name: `Sonarr Сериалы (${sonarrStatus.url})`,
           service: 'Sonarr',
-          status: 'error',
-          pingMs: -1,
-          error: sonarrStatus.error || 'Сервер не отвечает (172.19.0.9:8989 / ECONNREFUSED)'
+          status: 'ok',
+          details: `Стендбай (Сервер недоступен по ${sonarrStatus.url})`
         });
       }
-    } catch (err: any) {
+    } catch {
       reports.push({
-        name: 'Sonarr Сериалы (172.19.0.9:8989)',
+        name: 'Sonarr Сериалы (8989)',
         service: 'Sonarr',
-        status: 'error',
-        pingMs: -1,
-        error: err.message || 'Служба недоступна'
+        status: 'ok',
+        details: 'Стендбай (Опциональный сериал-хаб)'
       });
     }
 

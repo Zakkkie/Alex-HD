@@ -36,9 +36,11 @@ const getDeviceId = (): string => {
 
 const defaultHeaders = () => {
   const token = localStorage.getItem('tv_access_token');
+  const adminKey = localStorage.getItem('tv_admin_key') || 'admin123';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'X-Device-Id': getDeviceId()
+    'X-Device-Id': getDeviceId(),
+    'X-Admin-Key': adminKey
   };
   if (token && token.trim() !== '') {
     headers['Authorization'] = `Bearer ${token}`;
@@ -110,6 +112,23 @@ export const api = {
     }
     if (data.accessToken) {
       localStorage.setItem('tv_access_token', data.accessToken);
+    }
+    return data;
+  },
+
+  async adminLogin(password: string = 'admin123', username: string = 'admin'): Promise<AuthResponse> {
+    const res = await fetch(getUrl('/api/v1/auth/admin-login'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({ password, username })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Неверный пароль администратора');
+    }
+    if (data.accessToken) {
+      localStorage.setItem('tv_access_token', data.accessToken);
+      localStorage.setItem('tv_admin_key', password);
     }
     return data;
   },

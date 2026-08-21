@@ -6,7 +6,7 @@ import { JellyseerrService } from '../metadata/jellyseerrService';
 export class CatalogService {
   static getHomePayload(userId: string): HomePayload {
     const published = dbStore.content.filter(c => c.is_published);
-    const hero = published.find(c => c.id === 'c101-dune-2') || published[0];
+    const hero = published.length > 0 ? published[0] : (undefined as any);
 
     const continueWatching = dbStore.history
       .filter(h => h.user_id === userId && !h.is_finished && h.position_seconds > 10)

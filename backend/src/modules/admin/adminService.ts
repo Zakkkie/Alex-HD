@@ -25,13 +25,37 @@ export class AdminService {
     const processRssMb = Math.round(memUsage.rss / (1024 * 1024) * 10) / 10;
     const processHeapUsedMb = Math.round(memUsage.heapUsed / (1024 * 1024) * 10) / 10;
 
-    // 2. Real TorrServer Status
+    // 2. Real TorrServer Status & Cluster Nodes Live Check
     const torrStatus = await TorrServerService.testConnection();
 
-    // 3. Recalculate Node Load Factors
-    dbStore.nodes.forEach(n => {
-      n.loadFactor = TorrServerStreamingProvider.calculateLoadFactor(n);
-    });
+    for (const node of dbStore.nodes) {
+      try {
+        const targetHost = node.hostname || '127.0.0.1:8090';
+        const nodeStatus = await TorrServerService.testConnection(targetHost);
+        node.isOnline = nodeStatus.online;
+        node.pingMs = nodeStatus.latencyMs;
+        node.activeStreams = nodeStatus.online ? nodeStatus.activeTorrents : 0;
+        node.bandwidthMbps = nodeStatus.online ? (nodeStatus.readerWriteSpeedMbps || 0) : 0;
+        if (nodeStatus.online) {
+          node.cpuUsagePercent = cpuUsagePercent;
+          node.ramUsagePercent = ramUsagePercent;
+          node.error = undefined;
+        } else {
+          node.cpuUsagePercent = 0;
+          node.ramUsagePercent = 0;
+          node.error = nodeStatus.error || 'Сервер недоступен (ECONNREFUSED / No Ping)';
+        }
+      } catch (err: any) {
+        node.isOnline = false;
+        node.pingMs = -1;
+        node.activeStreams = 0;
+        node.bandwidthMbps = 0;
+        node.cpuUsagePercent = 0;
+        node.ramUsagePercent = 0;
+        node.error = err.message || 'Ошибка подключения к узлу';
+      }
+      node.loadFactor = TorrServerStreamingProvider.calculateLoadFactor(node);
+    }
 
     const totalUsers = dbStore.users.length;
     const totalDevices = dbStore.devices.length;
@@ -199,6 +223,7 @@ export class AdminService {
 
       if (res && (res.ok || res.status < 500)) {
         node.isOnline = true;
+        node.pingMs = latencyMs;
         fileLogger.info('ClusterManager', 'PING_SUCCESS', `Узел ${nodeId} (${targetUrl}) доступен, задержка: ${latencyMs} ms`, { latencyMs }, undefined, nodeId);
         return {
           success: true,
@@ -209,6 +234,11 @@ export class AdminService {
         };
       } else {
         node.isOnline = false;
+        node.pingMs = -1;
+        node.cpuUsagePercent = 0;
+        node.ramUsagePercent = 0;
+        node.activeStreams = 0;
+        node.bandwidthMbps = 0;
         const errMsg = res ? `HTTP ${res.status}` : 'Нет ответа';
         fileLogger.warn('ClusterManager', 'PING_OFFLINE', `Узел ${nodeId} (${targetUrl}) не ответил (${errMsg})`, { error: errMsg }, undefined, nodeId);
         return {
@@ -222,6 +252,11 @@ export class AdminService {
       }
     } catch (e: any) {
       node.isOnline = false;
+      node.pingMs = -1;
+      node.cpuUsagePercent = 0;
+      node.ramUsagePercent = 0;
+      node.activeStreams = 0;
+      node.bandwidthMbps = 0;
       const errMsg = e.name === 'AbortError' ? 'Таймаут соединения (2500ms)' : (e.message || 'ECONNREFUSED');
       fileLogger.error('ClusterManager', 'PING_ERROR', `Ошибка связи с узлом ${nodeId} (${targetUrl}): ${errMsg}`, { error: errMsg }, undefined, nodeId);
       return {

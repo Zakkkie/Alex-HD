@@ -329,6 +329,9 @@ export interface NodeHealthStatus {
   activeStreams: number;
   maxCapacity: number;
   loadFactor: number;
+  pingMs?: number;
+  error?: string;
+  version?: string;
 }
 
 export interface HomePayload {

@@ -212,30 +212,22 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({
   return (
     <div className="pb-16 pt-4 text-[#e6e3df]">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 pb-8 border-b border-[#e6e3df]/15">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8 pb-6 border-b border-[#e6e3df]/10">
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-[#d4b581]/15 border border-[#d4b581]/40 flex items-center justify-center text-[#d4b581] shrink-0 shadow-lg">
-            <Icon className="w-8 h-8" />
+          <div className="w-14 h-14 rounded-2xl bg-[#d4b581]/15 border border-[#d4b581]/30 flex items-center justify-center text-[#d4b581] shrink-0 shadow-lg">
+            <Icon className="w-7 h-7" />
           </div>
           <div>
-            <h1 className="font-serif-display text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-[#f5f3ef]">
+            <h1 className="font-serif-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-[#f5f3ef]">
               {title}
             </h1>
-            <p className="font-serif-body italic text-[#e6e3df]/70 text-base sm:text-lg mt-2">
+            <p className="font-serif-body italic text-[#e6e3df]/60 text-sm sm:text-base mt-1">
               {subtitle}
             </p>
           </div>
         </div>
-
-        <div className="flex flex-col items-end gap-1">
-          <div className="font-mono-code text-sm sm:text-base text-[#d4b581] bg-[#d4b581]/15 px-5 py-2.5 rounded-xl border border-[#d4b581]/35 uppercase tracking-wider font-bold shadow-md">
-            ПОКАЗАНО: {items.length} ИЗ {totalItems || items.length} РЕЛИЗОВ
-          </div>
-          <span className="text-[0.7rem] font-mono-code text-[#e6e3df]/50 uppercase tracking-widest">
-            (Загрузка порциями по 50 фильмов / сериалов)
-          </span>
-        </div>
       </div>
+
 
       {/* Collection Categories Filter (only in 'collections' mode) */}
       {mode === 'collections' && categoriesList.length > 0 && (

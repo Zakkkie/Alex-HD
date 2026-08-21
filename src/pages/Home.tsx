@@ -206,18 +206,6 @@ export const Home: React.FC<HomeProps> = ({
     }
   };
 
-  if (!data || !data.hero) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
-        <div className="w-12 h-12 border-4 border-[#e5a93c] border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-xl font-bold text-white mb-2">Загрузка каталога Alex HD...</h2>
-        <p className="text-white/60 text-sm max-w-md">
-          Подключение к серверу и загрузка списка фильмов...
-        </p>
-      </div>
-    );
-  }
-
   const rows = [
     {
       id: 'continue',
@@ -268,6 +256,13 @@ export const Home: React.FC<HomeProps> = ({
       items: rowItems['4k'] || []
     }
   ].filter(r => r.items.length > 0);
+
+  if (!data || !data.hero || rows.length === 0) {
+    return (
+      <div className="min-h-[85vh] w-full bg-black" />
+    );
+  }
+
 
   const firstRowItemId = rows.length > 0 ? `carousel-row-${rows[0].rowIndex}-item-0` : 'carousel-row-1-item-0';
 
