@@ -10,6 +10,9 @@ import { TorrServerService } from './backend/src/modules/streaming/torrServerSer
 import { AdminService } from './backend/src/modules/admin/adminService.js';
 import { MetadataService } from './backend/src/modules/metadata/metadataService.js';
 import { JellyseerrService } from './backend/src/modules/metadata/jellyseerrService.js';
+import { RadarrService } from './backend/src/modules/metadata/radarrService.js';
+import { SonarrService } from './backend/src/modules/metadata/sonarrService.js';
+import { ProwlarrService } from './backend/src/modules/metadata/prowlarrService.js';
 import { AIService } from './backend/src/modules/ai/aiService.js';
 import { dbStore } from './backend/src/db/store.js';
 import { config } from './backend/src/config/env.js';
@@ -257,6 +260,163 @@ async function startServer() {
       res.json(stats);
     } catch (e: any) {
       res.status(500).json({ error: 'TORRSERVER_STATS_FAILED', message: e.message });
+    }
+  });
+
+  app.post('/api/v1/torrserver/preload', generalRateLimiter, async (req, res) => {
+    const { link, title, url } = req.body;
+    if (!link) return res.status(400).json({ error: 'MISSING_LINK', message: 'Не указана magnet-ссылка или хеш' });
+    try {
+      const result = await TorrServerService.preloadTorrent(link, title, url);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: 'PRELOAD_FAILED', message: e.message });
+    }
+  });
+
+  // ------------------- PROWLARR API -------------------
+  app.get('/api/v1/prowlarr/status', generalRateLimiter, async (req, res) => {
+    try {
+      const status = await ProwlarrService.getStatus();
+      res.json(status);
+    } catch (e: any) {
+      res.status(500).json({ online: false, error: e.message });
+    }
+  });
+
+  app.get('/api/v1/prowlarr/search', searchRateLimiter, async (req, res) => {
+    const query = (req.query.query as string) || (req.query.q as string) || '';
+    const type = req.query.type === 'tv' || req.query.type === 'series' ? 'tv' : req.query.type === 'movie' ? 'movie' : undefined;
+    const season = req.query.season ? Number(req.query.season) : undefined;
+    const episode = req.query.episode ? Number(req.query.episode) : undefined;
+
+    if (!query) return res.json([]);
+    try {
+      const results = await ProwlarrService.search({ query, type, season, episode });
+      res.json(results);
+    } catch (e: any) {
+      res.status(500).json({ error: 'PROWLARR_SEARCH_FAILED', message: e.message });
+    }
+  });
+
+  // ------------------- RADARR API -------------------
+  app.get('/api/v1/radarr/status', generalRateLimiter, async (req, res) => {
+    try {
+      const status = await RadarrService.getStatus();
+      res.json(status);
+    } catch (e: any) {
+      res.status(500).json({ online: false, error: e.message });
+    }
+  });
+
+  app.get('/api/v1/radarr/movies', generalRateLimiter, async (req, res) => {
+    try {
+      const movies = await RadarrService.getMovies();
+      res.json(movies);
+    } catch (e: any) {
+      res.status(500).json({ error: 'RADARR_MOVIES_FAILED', message: e.message });
+    }
+  });
+
+  app.get('/api/v1/radarr/releases/:movieId', generalRateLimiter, async (req, res) => {
+    try {
+      const releases = await RadarrService.getReleases(req.params.movieId);
+      res.json(releases);
+    } catch (e: any) {
+      res.status(500).json({ error: 'RADARR_RELEASES_FAILED', message: e.message });
+    }
+  });
+
+  app.post('/api/v1/radarr/sync', async (req, res) => {
+    try {
+      const count = await RadarrService.syncWithStore();
+      res.json({ success: true, count, message: `Синхронизировано ${count} фильмов из Radarr` });
+    } catch (e: any) {
+      res.status(500).json({ error: 'RADARR_SYNC_FAILED', message: e.message });
+    }
+  });
+
+  // ------------------- SONARR API -------------------
+  app.get('/api/v1/sonarr/status', generalRateLimiter, async (req, res) => {
+    try {
+      const status = await SonarrService.getStatus();
+      res.json(status);
+    } catch (e: any) {
+      res.status(500).json({ online: false, error: e.message });
+    }
+  });
+
+  app.get('/api/v1/sonarr/series', generalRateLimiter, async (req, res) => {
+    try {
+      const series = await SonarrService.getSeries();
+      res.json(series);
+    } catch (e: any) {
+      res.status(500).json({ error: 'SONARR_SERIES_FAILED', message: e.message });
+    }
+  });
+
+  app.get('/api/v1/sonarr/episodes/:seriesId', generalRateLimiter, async (req, res) => {
+    try {
+      const episodes = await SonarrService.getEpisodes(req.params.seriesId);
+      res.json(episodes);
+    } catch (e: any) {
+      res.status(500).json({ error: 'SONARR_EPISODES_FAILED', message: e.message });
+    }
+  });
+
+  app.get('/api/v1/sonarr/releases/:seriesId', generalRateLimiter, async (req, res) => {
+    const season = req.query.season ? Number(req.query.season) : undefined;
+    try {
+      const releases = await SonarrService.getReleases(req.params.seriesId, season);
+      res.json(releases);
+    } catch (e: any) {
+      res.status(500).json({ error: 'SONARR_RELEASES_FAILED', message: e.message });
+    }
+  });
+
+  app.post('/api/v1/sonarr/sync', async (req, res) => {
+    try {
+      const count = await SonarrService.syncWithStore();
+      res.json({ success: true, count, message: `Синхронизировано ${count} сериалов из Sonarr` });
+    } catch (e: any) {
+      res.status(500).json({ error: 'SONARR_SYNC_FAILED', message: e.message });
+    }
+  });
+
+  // ------------------- UNIFIED RELEASES & TORRENT DISCOVERY -------------------
+  app.get('/api/v1/catalog/releases/:contentId', generalRateLimiter, async (req, res) => {
+    try {
+      const contentId = req.params.contentId;
+      const season = req.query.season ? Number(req.query.season) : undefined;
+      const episode = req.query.episode ? Number(req.query.episode) : undefined;
+
+      const item = dbStore.content.find(c => c.id === contentId || (c.tmdb_id && String(c.tmdb_id) === String(contentId)));
+      if (!item) {
+        return res.status(404).json({ error: 'CONTENT_NOT_FOUND', message: 'Контент не найден' });
+      }
+
+      const sources = await streamingProvider.searchSources({
+        id: item.id,
+        tmdbId: item.tmdb_id,
+        type: item.type,
+        title: item.title,
+        originalTitle: item.original_title,
+        year: item.release_year,
+        seasonNumber: season,
+        episodeNumber: episode
+      });
+
+      res.json({
+        contentId: item.id,
+        title: item.title,
+        type: item.type,
+        season,
+        episode,
+        sourcesCount: sources.length,
+        sources
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: 'RELEASES_SEARCH_FAILED', message: e.message });
     }
   });
 

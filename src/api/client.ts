@@ -915,5 +915,117 @@ export const api = {
       body: JSON.stringify(params)
     });
     return safeJson(res, { success: false });
+  },
+
+  // ------------------- PROWLARR CLIENT METHODS -------------------
+  async getProwlarrStatus(): Promise<{
+    online: boolean;
+    version?: string;
+    url: string;
+    indexersCount?: number;
+    indexers?: string[];
+    error?: string;
+    latencyMs?: number;
+  }> {
+    const res = await fetch(getUrl('/api/v1/prowlarr/status'), { headers: defaultHeaders() });
+    return safeJson(res, { online: false, url: 'http://172.19.0.5:9696' });
+  },
+
+  async searchProwlarr(query: string, opts?: { type?: 'movie' | 'tv'; season?: number; episode?: number }): Promise<any[]> {
+    const params = new URLSearchParams({ query });
+    if (opts?.type) params.set('type', opts.type);
+    if (opts?.season) params.set('season', String(opts.season));
+    if (opts?.episode) params.set('episode', String(opts.episode));
+    const res = await fetch(getUrl(`/api/v1/prowlarr/search?${params.toString()}`), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  // ------------------- RADARR CLIENT METHODS -------------------
+  async getRadarrStatus(): Promise<{
+    online: boolean;
+    version?: string;
+    url: string;
+    movieCount?: number;
+    error?: string;
+    latencyMs?: number;
+  }> {
+    const res = await fetch(getUrl('/api/v1/radarr/status'), { headers: defaultHeaders() });
+    return safeJson(res, { online: false, url: 'http://172.19.0.8:7878' });
+  },
+
+  async getRadarrMovies(): Promise<any[]> {
+    const res = await fetch(getUrl('/api/v1/radarr/movies'), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  async getRadarrReleases(movieId: number | string): Promise<any[]> {
+    const res = await fetch(getUrl(`/api/v1/radarr/releases/${movieId}`), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  async syncRadarr(): Promise<{ success: boolean; count: number; message: string }> {
+    const res = await fetch(getUrl('/api/v1/radarr/sync'), { method: 'POST', headers: defaultHeaders() });
+    return safeJson(res, { success: false, count: 0, message: '' });
+  },
+
+  // ------------------- SONARR CLIENT METHODS -------------------
+  async getSonarrStatus(): Promise<{
+    online: boolean;
+    version?: string;
+    url: string;
+    seriesCount?: number;
+    error?: string;
+    latencyMs?: number;
+  }> {
+    const res = await fetch(getUrl('/api/v1/sonarr/status'), { headers: defaultHeaders() });
+    return safeJson(res, { online: false, url: 'http://172.19.0.9:8989' });
+  },
+
+  async getSonarrSeries(): Promise<any[]> {
+    const res = await fetch(getUrl('/api/v1/sonarr/series'), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  async getSonarrEpisodes(seriesId: number | string): Promise<any[]> {
+    const res = await fetch(getUrl(`/api/v1/sonarr/episodes/${seriesId}`), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  async getSonarrReleases(seriesId: number | string, season?: number): Promise<any[]> {
+    const q = season ? `?season=${season}` : '';
+    const res = await fetch(getUrl(`/api/v1/sonarr/releases/${seriesId}${q}`), { headers: defaultHeaders() });
+    return safeJson(res, []);
+  },
+
+  async syncSonarr(): Promise<{ success: boolean; count: number; message: string }> {
+    const res = await fetch(getUrl('/api/v1/sonarr/sync'), { method: 'POST', headers: defaultHeaders() });
+    return safeJson(res, { success: false, count: 0, message: '' });
+  },
+
+  // ------------------- UNIFIED RELEASES & TORRENTS -------------------
+  async getCatalogReleases(contentId: string, season?: number, episode?: number): Promise<{
+    contentId: string;
+    title: string;
+    type: 'movie' | 'series';
+    season?: number;
+    episode?: number;
+    sourcesCount: number;
+    sources: any[];
+  }> {
+    const params = new URLSearchParams();
+    if (season !== undefined) params.set('season', String(season));
+    if (episode !== undefined) params.set('episode', String(episode));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(getUrl(`/api/v1/catalog/releases/${encodeURIComponent(contentId)}${qs}`), { headers: defaultHeaders() });
+    return safeJson(res, { contentId, title: '', type: 'movie', sourcesCount: 0, sources: [] });
+  },
+
+  async preloadTorrServerTorrent(link: string, title?: string, url?: string): Promise<{ success: boolean; hash?: string }> {
+    const res = await fetch(getUrl('/api/v1/torrserver/preload'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({ link, title, url })
+    });
+    return safeJson(res, { success: false });
   }
 };

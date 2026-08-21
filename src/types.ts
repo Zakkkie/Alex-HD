@@ -194,6 +194,7 @@ export interface ContentItem {
   trailer_url?: string;
   similar?: ContentItem[];
   stream_url?: string;
+  seasons?: Season[];
   subtitles?: SubtitleTrack[];
 }
 

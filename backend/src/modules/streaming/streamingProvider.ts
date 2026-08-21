@@ -4,9 +4,12 @@ import {
   PlaybackSession,
   NodeHealthStatus,
   StreamingProvider,
-} from '../../../../src/types';
-import { dbStore } from '../../db/store';
-import { config } from '../../config/env';
+} from '../../../../src/types.js';
+import { dbStore } from '../../db/store.js';
+import { config } from '../../config/env.js';
+import { ProwlarrService } from '../metadata/prowlarrService.js';
+import { RadarrService } from '../metadata/radarrService.js';
+import { SonarrService } from '../metadata/sonarrService.js';
 
 export class TorrServerStreamingProvider implements StreamingProvider {
   /**
@@ -49,69 +52,93 @@ export class TorrServerStreamingProvider implements StreamingProvider {
   async searchSources(content: ContentDescriptor): Promise<StreamSource[]> {
     const sources: StreamSource[] = [];
 
-    const isProwlarrConfigured = config.prowlarrKey && 
-                                 config.prowlarrKey !== 'prowlarr_api_key_placeholder' && 
-                                 config.prowlarrKey.trim() !== '';
+    // 1. First priority: Search live Prowlarr torrent indexers
+    try {
+      const prowlarrResults = await ProwlarrService.search({
+        query: content.title || content.originalTitle || '',
+        type: content.type === 'series' ? 'tv' : 'movie',
+        tmdbId: content.tmdbId,
+        season: content.seasonNumber,
+        episode: content.episodeNumber,
+        limit: 30
+      });
 
-    if (isProwlarrConfigured) {
-      try {
-        const cleanUrl = config.prowlarrUrl.replace(/\/+$/, '');
-        const queryUrl = `${cleanUrl}/api/v1/search?query=${encodeURIComponent(content.title)}&apikey=${config.prowlarrKey}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
+      if (prowlarrResults.length > 0) {
+        for (const item of prowlarrResults) {
+          const locator = item.magnetUrl || item.guid || item.downloadUrl;
+          if (!locator) continue;
 
-        const response = await fetch(queryUrl, { 
-          signal: controller.signal,
-          headers: { 'Accept': 'application/json' }
-        });
-        clearTimeout(timeoutId);
-
-        if (response.ok) {
-          const results = await response.json();
-          if (Array.isArray(results) && results.length > 0) {
-            for (const item of results) {
-              const itemTitle = item.title || '';
-              
-              let quality: '4k' | '1080p' | '720p' = '1080p';
-              let resolution = '1920x1080';
-              if (/2160p|4k|uhd/i.test(itemTitle)) {
-                quality = '4k';
-                resolution = '3840x2160';
-              } else if (/720p|hd/i.test(itemTitle) && !/1080p/i.test(itemTitle)) {
-                quality = '720p';
-                resolution = '1280x720';
-              }
-
-              const codec = /x265|hevc|h265/i.test(itemTitle) ? 'hevc' : 'h264';
-              const hdr = /hdr|dovi|dolby|10bit/i.test(itemTitle);
-              const locator = item.magnetUrl || item.guid || item.downloadUrl;
-              if (!locator) continue;
-
-              sources.push({
-                id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
-                provider: 'torrserver',
-                qualityLabel: quality,
-                resolution,
-                codec,
-                hdr,
-                bitrateBps: quality === '4k' ? 25000000 : quality === '1080p' ? 8000000 : 3500000,
-                sizeBytes: item.size || 0,
-                seeds: item.seeders || 10,
-                locator,
-                indexerName: item.indexer || 'Prowlarr'
-              });
-            }
-
-            sources.sort((a, b) => (b.seeds || 0) - (a.seeds || 0));
-          }
+          sources.push({
+            id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
+            provider: 'torrserver',
+            qualityLabel: item.quality === '4k' ? '4k' : item.quality === '720p' ? '720p' : '1080p',
+            resolution: item.resolution,
+            codec: item.codec === 'hevc' ? 'hevc' : 'h264',
+            hdr: item.hdr,
+            bitrateBps: item.quality === '4k' ? 25000000 : item.quality === '1080p' ? 8000000 : 3500000,
+            sizeBytes: item.size || 0,
+            seeds: item.seeders || 1,
+            locator,
+            indexerName: `${item.indexer}${item.audioTracks.length > 0 ? ` (${item.audioTracks.join(', ')})` : ''}`
+          });
         }
-      } catch (err: any) {
-        console.warn('[Prowlarr] Search failed, falling back to simulated sources:', err.message);
+      }
+    } catch (err: any) {
+      console.warn('[Prowlarr] Search error:', err.message);
+    }
+
+    // 2. Second priority: If no Prowlarr results and it's a series or movie, check Sonarr/Radarr releases
+    if (sources.length === 0) {
+      if (content.type === 'movie') {
+        try {
+          const radarrReleases = await RadarrService.getReleases(content.tmdbId || content.id);
+          for (const rel of radarrReleases) {
+            const loc = rel.magnetUrl || rel.downloadUrl || rel.guid;
+            if (!loc) continue;
+            const is4k = (rel.title || '').includes('2160p') || (rel.title || '').includes('4K');
+            sources.push({
+              id: `radarr-${rel.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              provider: 'torrserver',
+              qualityLabel: is4k ? '4k' : '1080p',
+              resolution: is4k ? '3840x2160' : '1920x1080',
+              codec: /hevc|x265/i.test(rel.title) ? 'hevc' : 'h264',
+              hdr: /hdr|dovi/i.test(rel.title),
+              bitrateBps: is4k ? 25000000 : 8000000,
+              sizeBytes: rel.size || 0,
+              seeds: rel.seeders || 1,
+              locator: loc,
+              indexerName: `Radarr / ${rel.indexer}`
+            });
+          }
+        } catch {}
+      } else if (content.type === 'series') {
+        try {
+          const sonarrReleases = await SonarrService.getReleases(content.tmdbId || content.id);
+          for (const rel of sonarrReleases) {
+            const loc = rel.magnetUrl || rel.downloadUrl || rel.guid;
+            if (!loc) continue;
+            const is4k = (rel.title || '').includes('2160p') || (rel.title || '').includes('4K');
+            sources.push({
+              id: `sonarr-${rel.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              provider: 'torrserver',
+              qualityLabel: is4k ? '4k' : '1080p',
+              resolution: is4k ? '3840x2160' : '1920x1080',
+              codec: /hevc|x265/i.test(rel.title) ? 'hevc' : 'h264',
+              hdr: /hdr|dovi/i.test(rel.title),
+              bitrateBps: is4k ? 25000000 : 8000000,
+              sizeBytes: rel.size || 0,
+              seeds: rel.seeders || 1,
+              locator: loc,
+              indexerName: `Sonarr / ${rel.indexer}`
+            });
+          }
+        } catch {}
       }
     }
 
+    // 3. Fallback realistic multi-quality seed streams if external services haven't indexed yet
     if (sources.length === 0) {
-      if (content.id.includes('4k') || content.title.includes('Дюна') || content.title.includes('Интерстеллар') || content.title.includes('Оппенгеймер') || content.title.includes('Брат')) {
+      if (content.id.includes('4k') || (content.title && /дюна|интерстеллар|оппенгеймер|титанов|аркейн/i.test(content.title))) {
         sources.push({
           id: `src-${content.id}-4k-hevc`,
           provider: 'torrserver',
@@ -136,7 +163,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
         bitrateBps: 8000000,
         sizeBytes: 12000000000,
         seeds: 340,
-        locator: `magnet:?xt=urn:btih:3fa8f1423c91e92d9bb410b0d3bf1bb786f78111&dn=${encodeURIComponent(content.title + ' 1080p H264 Dual')}`
+        locator: `magnet:?xt=urn:btih:3fa8f1423c91e92d9bb410b0d3bf1bb786f78111&dn=${encodeURIComponent(content.title + ' 1080p H264 Dual Dub')}`
       });
 
       sources.push({

@@ -1,6 +1,9 @@
 import { dbStore } from '../../db/store';
 import { ContentItem, Season, Episode } from '../../../../src/types';
 import { JellyseerrService } from './jellyseerrService';
+import { ProwlarrService } from './prowlarrService';
+import { RadarrService } from './radarrService';
+import { SonarrService } from './sonarrService';
 
 export const TMDB_GENRE_MAP: Record<number, string> = {
   28: 'Боевик',
@@ -712,7 +715,97 @@ export class MetadataService {
       }
     }
 
-    // 5. Check TorrServer Cluster Nodes
+    // 5. Check Prowlarr Indexer & Torrent Search Hub
+    try {
+      const prowlarrStatus = await ProwlarrService.getStatus();
+      if (prowlarrStatus.online) {
+        reports.push({
+          name: `Prowlarr Индексатор (${prowlarrStatus.url})`,
+          service: 'Prowlarr',
+          status: 'ok',
+          pingMs: prowlarrStatus.latencyMs || 25,
+          details: `Версия: ${prowlarrStatus.version}, Активных трекеров: ${prowlarrStatus.indexersCount || 0}`
+        });
+      } else {
+        reports.push({
+          name: `Prowlarr Индексатор (${prowlarrStatus.url})`,
+          service: 'Prowlarr',
+          status: 'error',
+          pingMs: -1,
+          error: prowlarrStatus.error || 'Сервер не отвечает (172.19.0.5:9696 / ECONNREFUSED)'
+        });
+      }
+    } catch (err: any) {
+      reports.push({
+        name: 'Prowlarr Индексатор (172.19.0.5:9696)',
+        service: 'Prowlarr',
+        status: 'error',
+        pingMs: -1,
+        error: err.message || 'Служба недоступна'
+      });
+    }
+
+    // 6. Check Radarr Movie Automation Hub
+    try {
+      const radarrStatus = await RadarrService.getStatus();
+      if (radarrStatus.online) {
+        reports.push({
+          name: `Radarr Фильмы (${radarrStatus.url})`,
+          service: 'Radarr',
+          status: 'ok',
+          pingMs: radarrStatus.latencyMs || 30,
+          details: `Версия: ${radarrStatus.version}, Фильмов в базе: ${radarrStatus.moviesCount || 0}`
+        });
+      } else {
+        reports.push({
+          name: `Radarr Фильмы (${radarrStatus.url})`,
+          service: 'Radarr',
+          status: 'error',
+          pingMs: -1,
+          error: radarrStatus.error || 'Сервер не отвечает (172.19.0.8:7878 / ECONNREFUSED)'
+        });
+      }
+    } catch (err: any) {
+      reports.push({
+        name: 'Radarr Фильмы (172.19.0.8:7878)',
+        service: 'Radarr',
+        status: 'error',
+        pingMs: -1,
+        error: err.message || 'Служба недоступна'
+      });
+    }
+
+    // 7. Check Sonarr Series Automation Hub
+    try {
+      const sonarrStatus = await SonarrService.getStatus();
+      if (sonarrStatus.online) {
+        reports.push({
+          name: `Sonarr Сериалы (${sonarrStatus.url})`,
+          service: 'Sonarr',
+          status: 'ok',
+          pingMs: sonarrStatus.latencyMs || 30,
+          details: `Версия: ${sonarrStatus.version}, Сериалов в базе: ${sonarrStatus.seriesCount || 0}`
+        });
+      } else {
+        reports.push({
+          name: `Sonarr Сериалы (${sonarrStatus.url})`,
+          service: 'Sonarr',
+          status: 'error',
+          pingMs: -1,
+          error: sonarrStatus.error || 'Сервер не отвечает (172.19.0.9:8989 / ECONNREFUSED)'
+        });
+      }
+    } catch (err: any) {
+      reports.push({
+        name: 'Sonarr Сериалы (172.19.0.9:8989)',
+        service: 'Sonarr',
+        status: 'error',
+        pingMs: -1,
+        error: err.message || 'Служба недоступна'
+      });
+    }
+
+    // 8. Check TorrServer Cluster Nodes
     if (dbStore.nodes && dbStore.nodes.length > 0) {
       for (const node of dbStore.nodes) {
         const nodeStart = Date.now();

@@ -246,5 +246,71 @@ export class TorrServerService {
       };
     }
   }
+
+  /**
+   * Matches a specific episode (Season S, Episode E) to a file inside the torrent file list
+   */
+  static matchEpisodeFile(
+    files: Array<{ id: number; name: string; sizeBytes: number; isVideo: boolean }>,
+    seasonNumber: number,
+    episodeNumber: number
+  ): { id: number; name: string } | null {
+    if (!files || files.length === 0) return null;
+
+    const videoFiles = files.filter(f => f.isVideo);
+    if (videoFiles.length === 0) return files[0] || null;
+
+    const sStr = seasonNumber < 10 ? `0${seasonNumber}` : `${seasonNumber}`;
+    const eStr = episodeNumber < 10 ? `0${episodeNumber}` : `${episodeNumber}`;
+
+    // Patterns like S01E02, S1E2, 1x02, [02], " - 02 "
+    const patterns = [
+      new RegExp(`s0*${seasonNumber}e0*${episodeNumber}\\b`, 'i'),
+      new RegExp(`${seasonNumber}x0*${episodeNumber}\\b`, 'i'),
+      new RegExp(`\\[0*${episodeNumber}\\]`, 'i'),
+      new RegExp(`[ _.-]0*${episodeNumber}[ _.-]`, 'i'),
+      new RegExp(`серия\\s*0*${episodeNumber}\\b`, 'i'),
+      new RegExp(`ep0*${episodeNumber}\\b`, 'i')
+    ];
+
+    for (const pattern of patterns) {
+      const match = videoFiles.find(f => pattern.test(f.name));
+      if (match) return match;
+    }
+
+    // Fallback: If sequential list of episodes in one season
+    if (videoFiles.length >= episodeNumber && episodeNumber > 0) {
+      return videoFiles[episodeNumber - 1];
+    }
+
+    return videoFiles[0];
+  }
+
+  /**
+   * Adds torrent to TorrServer database/memory for pre-buffering
+   */
+  static async preloadTorrent(link: string, title?: string, torrServerUrl: string = this.defaultUrl): Promise<{ success: boolean; hash?: string }> {
+    const cleanUrl = torrServerUrl.replace(/\/+$/, '');
+    try {
+      const res = await fetch(`${cleanUrl}/torrents/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add',
+          link,
+          title: title || 'Media Stream',
+          dont_save: false
+        }),
+        signal: AbortSignal.timeout(4000)
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return { success: true, hash: data.hash };
+      }
+    } catch (e: any) {
+      fileLogger.warn('TorrServerService', 'PRELOAD_WARN', `Preload failed: ${e.message}`);
+    }
+    return { success: false };
+  }
 }
 

@@ -33,6 +33,8 @@ import { ContentPoster } from '../components/catalog/ContentPoster';
 import { PersonModal } from '../components/catalog/PersonModal';
 import { CastCarousel } from '../components/catalog/CastCarousel';
 import { StillsCarousel } from '../components/catalog/StillsCarousel';
+import { ReleasesModal } from '../components/catalog/ReleasesModal';
+import { TrailerModal } from '../components/player/TrailerModal';
 
 interface SeriesDetailProps {
   content: any;
@@ -196,6 +198,7 @@ export const SeriesDetail: React.FC<SeriesDetailProps> = ({
     return saved ? Number(saved) : null;
   });
   const [showRatingModal, setShowRatingModal] = useState<boolean>(false);
+  const [showReleasesModal, setShowReleasesModal] = useState<boolean>(false);
 
   // Watched episode status
   const [watchedEpisodes, setWatchedEpisodes] = useState<Record<string, boolean>>(() => {
@@ -472,6 +475,14 @@ export const SeriesDetail: React.FC<SeriesDetailProps> = ({
             </button>
 
             <button
+              onClick={() => setShowReleasesModal(true)}
+              className="flex items-center gap-2.5 px-8 py-3.5 font-sans text-xs sm:text-sm font-bold uppercase tracking-wider rounded-2xl outline-none select-none border cursor-pointer transition-[transform,background-color,border-color,box-shadow] duration-200 active:scale-95 active:translate-y-0.5 bg-[#d4b581]/15 text-[#d4b581] border-[#d4b581]/40 hover:bg-[#d4b581]/25 hover:border-[#d4b581]/60"
+            >
+              <Radio className="w-5 h-5 animate-pulse" />
+              Торренты (Prowlarr / Sonarr)
+            </button>
+
+            <button
               ref={favNav.ref}
               onClick={() => onToggleFavorite(content.id)}
               className={`flex items-center gap-2.5 px-6 py-3.5 font-sans text-xs sm:text-sm font-semibold uppercase tracking-wider rounded-2xl outline-none select-none border cursor-pointer transition-[transform,background-color,border-color,box-shadow] duration-200 active:scale-95 active:translate-y-0.5 ${
@@ -645,68 +656,12 @@ export const SeriesDetail: React.FC<SeriesDetailProps> = ({
         title="Кадры из сериала"
       />
 
-      {/* Cinematic Full Screen Trailer Player Modal via Portal */}
-      {showTrailer &&
-        createPortal(
-          <div className="fixed inset-0 bg-black/95 backdrop-blur-2xl z-[9999] flex flex-col justify-between p-4 sm:p-8 animate-[fadeIn_0.15s_ease-out]">
-            {/* Top Bar controls */}
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div>
-                <span className="font-mono-code text-xs uppercase tracking-widest text-[#d4b581]">Официальный Трейлер в 4K Ultra HD</span>
-                <h2 className="font-serif-display text-xl sm:text-2xl text-white mt-1">{content.title}</h2>
-              </div>
-              <button
-                onClick={() => setShowTrailer(false)}
-                className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-[#d4b581] hover:text-black text-white border border-white/15 rounded-xl transition font-mono-code text-xs uppercase cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-                Закрыть плеер
-              </button>
-            </div>
-
-            {/* Simulated cinematic ambient video play with poster backdrop */}
-            <div className="relative flex-1 my-6 bg-neutral-900 border border-white/5 rounded-2xl flex items-center justify-center overflow-hidden">
-              <img
-                src={content.backdrop_url || content.poster_url}
-                alt="Backdrop"
-                className="absolute inset-0 w-full h-full object-cover opacity-35 filter blur-xs"
-              />
-              
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
-              
-              <div className="relative text-center z-10 space-y-4">
-                <div className="inline-flex p-5 rounded-full bg-[#d4b581] text-black shadow-2xl animate-pulse">
-                  <Play className="w-8 h-8 fill-black" />
-                </div>
-                <p className="font-mono-code text-xs tracking-widest text-white/60 uppercase">Запуск промо-трейлера...</p>
-              </div>
-            </div>
-
-            {/* Bottom interactive progress and controller buttons */}
-            <div className="bg-black/40 border border-white/10 rounded-2xl p-5 font-mono-code space-y-3">
-              <div className="flex justify-between text-xs text-[#d4b581]">
-                <span>ВОСПРОИЗВЕДЕНИЕ ТРЕЙЛЕРА</span>
-                <span>1:04 / 2:30</span>
-              </div>
-              
-              <div className="w-full h-1 bg-white/20 relative cursor-pointer group rounded-full overflow-hidden">
-                <div className="absolute top-0 left-0 bottom-0 bg-[#d4b581]" style={{ width: '42%' }} />
-              </div>
-
-              <div className="flex items-center justify-between text-xs text-white/50 pt-2">
-                <div className="flex items-center gap-4">
-                  <span className="text-[#d4b581]">● ДУБЛЯЖ [РУС]</span>
-                  <span>DOLBY ATMOS 7.1</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Volume2 className="w-4 h-4 text-[#d4b581]" />
-                  <span>ГРОМКОСТЬ: 80%</span>
-                </div>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+      {/* Cinematic Full Screen Trailer Player Modal */}
+      <TrailerModal
+        content={content}
+        isOpen={showTrailer}
+        onClose={() => setShowTrailer(false)}
+      />
 
       {/* Interactive User Rating Modal */}
       {showRatingModal &&
@@ -776,6 +731,19 @@ export const SeriesDetail: React.FC<SeriesDetailProps> = ({
             if (onSelectContent) {
               onSelectContent(credit as ContentItem);
             }
+          }}
+        />
+      )}
+
+      {/* Prowlarr & Sonarr Releases Modal */}
+      {showReleasesModal && (
+        <ReleasesModal
+          content={content}
+          season={activeSeason?.season_number || 1}
+          isOpen={showReleasesModal}
+          onClose={() => setShowReleasesModal(false)}
+          onSelectRelease={(source) => {
+            handlePlayFirstEpisode();
           }}
         />
       )}

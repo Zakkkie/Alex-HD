@@ -160,9 +160,9 @@ export class DatabaseStore {
       created_at: new Date().toISOString()
     },
     {
-      id: 'usr-demo-01',
-      email: 'demo@smarttv.com',
-      username: 'tv_viewer',
+      id: 'usr-user-01',
+      email: 'user@alexhd.app',
+      username: 'alex_viewer',
       role: 'user',
       is_blocked: false,
       created_at: new Date().toISOString()

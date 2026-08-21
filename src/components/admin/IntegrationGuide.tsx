@@ -621,7 +621,7 @@ WantedBy=multi-user.target
         <div>
           <h3 className="font-serif text-xl font-bold text-white flex items-center gap-2">
             <Activity className="w-5 h-5 text-emerald-400" />
-            <span>Интерактивный тестер сбора телеметрии (Live Telemetry Simulator)</span>
+            <span>Интерактивный тестер сбора телеметрии и валидации агента</span>
           </h3>
           <p className="font-mono text-xs text-[#e6e3df]/50 mt-1">
             Отправьте тестовый пакет данных от имени узла и проверьте корректность сохранения на сервере
