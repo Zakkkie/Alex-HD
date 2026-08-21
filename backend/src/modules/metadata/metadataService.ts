@@ -1,5 +1,6 @@
 import { dbStore } from '../../db/store';
 import { ContentItem, Season, Episode } from '../../../../src/types';
+import { JellyseerrService } from './jellyseerrService';
 
 export const TMDB_GENRE_MAP: Record<number, string> = {
   28: 'Боевик',
@@ -485,7 +486,7 @@ export class TVDBClient {
  */
 export interface ApiHealthReport {
   name: string;
-  service: 'TMDB' | 'TVDB' | 'Gemini' | 'TorrServer';
+  service: 'TMDB' | 'TVDB' | 'Gemini' | 'TorrServer' | 'Jellyseerr';
   status: 'ok' | 'error';
   pingMs?: number;
   error?: string;
@@ -662,7 +663,56 @@ export class MetadataService {
       }
     }
 
-    // 4. Check TorrServer Cluster Nodes
+    // 4. Check Jellyseerr API (Optional Local/Docker Media Hub)
+    const seerrStart = Date.now();
+    try {
+      const seerrStatus = await JellyseerrService.getStatus();
+      const ms = Date.now() - seerrStart;
+      if (seerrStatus.online) {
+        reports.push({
+          name: `Jellyseerr Media Hub (${JellyseerrService.url})`,
+          service: 'Jellyseerr',
+          status: 'ok',
+          pingMs: ms,
+          details: `Версия: ${seerrStatus.version || 'Active'}, Запросов: ${seerrStatus.totalRequests || 0}`
+        });
+      } else if (!JellyseerrService.apiKey) {
+        // If API key is not configured, treat as standby/ready optional integration
+        reports.push({
+          name: `Jellyseerr Media Hub (${JellyseerrService.url})`,
+          service: 'Jellyseerr',
+          status: 'ok',
+          pingMs: ms,
+          details: 'Стендбай (Опциональный Docker-хаб: 172.19.0.2:5055)'
+        });
+      } else {
+        reports.push({
+          name: `Jellyseerr Media Hub (${JellyseerrService.url})`,
+          service: 'Jellyseerr',
+          status: 'error',
+          pingMs: ms,
+          error: seerrStatus.error || 'Недоступен'
+        });
+      }
+    } catch (err: any) {
+      if (!JellyseerrService.apiKey) {
+        reports.push({
+          name: `Jellyseerr Media Hub (${JellyseerrService.url})`,
+          service: 'Jellyseerr',
+          status: 'ok',
+          details: 'Стендбай (Опциональный Docker-хаб)'
+        });
+      } else {
+        reports.push({
+          name: `Jellyseerr Media Hub (${JellyseerrService.url})`,
+          service: 'Jellyseerr',
+          status: 'error',
+          error: err.message
+        });
+      }
+    }
+
+    // 5. Check TorrServer Cluster Nodes
     if (dbStore.nodes && dbStore.nodes.length > 0) {
       for (const node of dbStore.nodes) {
         const nodeStart = Date.now();

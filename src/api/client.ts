@@ -837,5 +837,83 @@ export const api = {
       body: JSON.stringify({ externalId, source, type })
     });
     return safeJson(res, { success: true });
+  },
+
+  // ------------------- JELLYSEERR METHODS -------------------
+  async getJellyseerrStatus(): Promise<{
+    online: boolean;
+    version?: string;
+    commitTag?: string;
+    url: string;
+    totalRequests?: number;
+    error?: string;
+  }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/status'), { headers: defaultHeaders() });
+    return safeJson(res, { online: false, url: 'http://127.0.0.1:5055' });
+  },
+
+  async getJellyseerrConfig(): Promise<{
+    url: string;
+    apiKey: string;
+    hasKey: boolean;
+    isEnabled: boolean;
+  }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/config'), { headers: defaultHeaders() });
+    return safeJson(res, { url: 'http://127.0.0.1:5055', apiKey: '', hasKey: false, isEnabled: true });
+  },
+
+  async updateJellyseerrConfig(config: { url?: string; apiKey?: string; isEnabled?: boolean }): Promise<{
+    success: boolean;
+    message: string;
+    config: any;
+  }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/config'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify(config)
+    });
+    return safeJson(res, { success: true });
+  },
+
+  async testJellyseerrConnection(url?: string, apiKey?: string): Promise<{
+    online: boolean;
+    version?: string;
+    commitTag?: string;
+    url: string;
+    error?: string;
+  }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/test-connection'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify({ url, apiKey })
+    });
+    return safeJson(res, { online: false, url: url || 'http://127.0.0.1:5055' });
+  },
+
+  async syncJellyseerrCatalog(): Promise<{
+    success: boolean;
+    syncedCount: number;
+    totalCount: number;
+    error?: string;
+  }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/sync'), {
+      method: 'POST',
+      headers: defaultHeaders()
+    });
+    return safeJson(res, { success: false, syncedCount: 0, totalCount: 0 });
+  },
+
+  async requestJellyseerrMedia(params: {
+    mediaType: 'movie' | 'tv';
+    mediaId: number;
+    seasons?: number[];
+    is4k?: boolean;
+  }): Promise<{ success: boolean; result?: any; error?: string }> {
+    const res = await fetch(getUrl('/api/v1/jellyseerr/request'), {
+      method: 'POST',
+      headers: defaultHeaders(),
+      body: JSON.stringify(params)
+    });
+    return safeJson(res, { success: false });
   }
 };

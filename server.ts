@@ -9,6 +9,7 @@ import { streamingProvider, TorrServerStreamingProvider } from './backend/src/mo
 import { TorrServerService } from './backend/src/modules/streaming/torrServerService.js';
 import { AdminService } from './backend/src/modules/admin/adminService.js';
 import { MetadataService } from './backend/src/modules/metadata/metadataService.js';
+import { JellyseerrService } from './backend/src/modules/metadata/jellyseerrService.js';
 import { AIService } from './backend/src/modules/ai/aiService.js';
 import { dbStore } from './backend/src/db/store.js';
 import { config } from './backend/src/config/env.js';
@@ -447,6 +448,109 @@ async function startServer() {
       res.json({ success: true, item: importedItem });
     } catch (err: any) {
       res.status(500).json({ error: 'IMPORT_FAILED', message: err.message });
+    }
+  });
+
+  // ------------------- JELLYSEERR API (OVERSEERR / DOCKER INTEGRATION) -------------------
+  app.get('/api/v1/jellyseerr/status', generalRateLimiter, async (req, res) => {
+    try {
+      const status = await JellyseerrService.getStatus();
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ online: false, error: err.message });
+    }
+  });
+
+  app.get('/api/v1/jellyseerr/config', (req, res) => {
+    res.json({
+      url: JellyseerrService.url,
+      apiKey: JellyseerrService.apiKey ? `${JellyseerrService.apiKey.substring(0, 4)}...${JellyseerrService.apiKey.slice(-4)}` : '',
+      hasKey: Boolean(JellyseerrService.apiKey),
+      isEnabled: JellyseerrService.isEnabled()
+    });
+  });
+
+  app.post('/api/v1/jellyseerr/config', requireAdmin, (req, res) => {
+    const { url, apiKey, isEnabled } = req.body;
+    JellyseerrService.setConfig(url, apiKey, isEnabled !== undefined ? isEnabled : true);
+    res.json({
+      success: true,
+      message: 'Конфигурация Jellyseerr успешно сохранена',
+      config: {
+        url: JellyseerrService.url,
+        hasKey: Boolean(JellyseerrService.apiKey),
+        isEnabled: JellyseerrService.isEnabled()
+      }
+    });
+  });
+
+  app.post('/api/v1/jellyseerr/test-connection', requireAdmin, async (req, res) => {
+    const { url, apiKey } = req.body;
+    if (url) {
+      JellyseerrService.setConfig(url, apiKey);
+    }
+    const status = await JellyseerrService.getStatus();
+    res.json(status);
+  });
+
+  app.post('/api/v1/jellyseerr/sync', requireAdmin, async (req, res) => {
+    try {
+      const syncResult = await JellyseerrService.syncCatalog();
+      res.json(syncResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/v1/jellyseerr/trending', async (req, res) => {
+    try {
+      const page = Number(req.query.page) || 1;
+      const data = await JellyseerrService.getTrending(page);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: 'JELLYSEERR_TRENDING_FAILED', message: err.message });
+    }
+  });
+
+  app.get('/api/v1/jellyseerr/movie/:id', async (req, res) => {
+    try {
+      const data = await JellyseerrService.getMovieDetails(req.params.id);
+      if (!data) return res.status(404).json({ error: 'MOVIE_NOT_FOUND' });
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: 'JELLYSEERR_MOVIE_FAILED', message: err.message });
+    }
+  });
+
+  app.get('/api/v1/jellyseerr/tv/:id', async (req, res) => {
+    try {
+      const data = await JellyseerrService.getTVDetails(req.params.id);
+      if (!data) return res.status(404).json({ error: 'TV_NOT_FOUND' });
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: 'JELLYSEERR_TV_FAILED', message: err.message });
+    }
+  });
+
+  app.post('/api/v1/jellyseerr/request', async (req, res) => {
+    try {
+      const { mediaType, mediaId, seasons, is4k } = req.body;
+      const result = await JellyseerrService.requestMedia({ mediaType, mediaId, seasons, is4k });
+      res.json({ success: true, result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/v1/jellyseerr/media', async (req, res) => {
+    try {
+      const take = Number(req.query.take) || 50;
+      const skip = Number(req.query.skip) || 0;
+      const filter = (req.query.filter as string) || 'all';
+      const data = await JellyseerrService.getMediaList(take, skip, filter);
+      res.json(data);
+    } catch (err: any) {
+      res.status(500).json({ error: 'JELLYSEERR_MEDIA_FAILED', message: err.message });
     }
   });
 

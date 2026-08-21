@@ -1,361 +1,212 @@
-# Единое руководство по архитектуре, установке и защите Alex HD
+# Полное пошаговое руководство по установке Alex HD с нуля (От VS Code до первого просмотра на Smart TV)
 
-Полное практическое руководство по архитектуре потокового воспроизведения **Zero-Disk On-Demand Streaming**, развертыванию медиа-платформы **Alex HD** с поддержкой Smart TV (Samsung Tizen, LG webOS, Android TV, Apple TV, Media Station X), стриминга на лету через **TorrServer MatriX** в оперативной памяти (RAM), поиска и индексации через **Prowlarr & FlareSolverr**, базы данных **PostgreSQL 15+**, прямого входа по **IP:Port БЕЗ домена**, фронтенда на **Vercel** и комплексной безопасности через **Fail2ban & SSH Hardening**.
-
----
-
-## 📌 Быстрый выбор варианта установки
-
-| Вариант | Фронтенд | Бэкенд и База | TorrServer & Prowlarr | Для кого подходит |
-|---|---|---|---|---|
-| **Вариант 1 (БЕЗ ДОМЕНА: Прямой IP:Port / All-in-One VPS)** | **Тот же VPS** (`http://IP:3000` или `http://IP`) | **Тот же VPS** (Node.js + PostgreSQL) | **Тот же VPS** (RAM буфер 200MB) | **Самый простой и быстрый способ**: не нужен домен, не нужны SSL-сертификаты, нет ошибки Mixed Content, всё работает сразу из коробки по чистому HTTP. |
-| **Вариант 2 (Vercel CDN + VPS)** | **Vercel CDN** (`alex-hd.vercel.app`) | **VPS** (Node.js + PostgreSQL) | **VPS** (RAM буфер 200MB) | **Мгновенная загрузка интерфейса** через глобальный CDN Vercel без нагрузки на процессор VPS, тяжелый стриминг — на VPS. |
-| **Вариант 3 (All-in-One VPS + Nginx SSL)** | **Тот же VPS** | **Тот же VPS** | **Тот же VPS** | При наличии своего домена (например `tv.mydomain.com`) с защищенным HTTPS через Let's Encrypt / Cloudflare. |
-| **Вариант 4 (Docker Compose)** | **Контейнер** | **Контейнеры** | **Контейнеры** | Запуск полного изолированного стека (TorrServer + Prowlarr + FlareSolverr + Postgres) одной командой `docker compose up -d`. |
-| **Вариант 5 (Только TorrServer)** | **Vercel / Локально** | Встроенная память | **VPS** (порт 8090) | Минимальная установка только стримингового движка без базы данных. |
+Данный гайд содержит **исчерпывающую пошаговую инструкцию** по развертыванию собственного медиа-кинотеатра **Alex HD** с потоковым стримингом **TorrServer MatriX** (Zero-Disk Streaming в RAM без скачивания на диск), поиском по торрент-трекерам через **Prowlarr & FlareSolverr**, базой данных **PostgreSQL 15+**, веб-сервером **Nginx** и поддержкой воспроизведения на любых ТВ (**Samsung Tizen**, **LG webOS**, **Android TV / Google TV**, **Apple TV**, **Media Station X**), ПК и смартфонах.
 
 ---
 
-# РАЗДЕЛ 0. Архитектура Zero-Disk Стриминга (Seerr + Prowlarr + TorrServer + Плеер)
+## 📋 Оглавление
+1. [ШАГ 0. Подготовка VS Code и подключение к VPS через Remote - SSH](#шаг-0-подготовка-vs-code-и-подключение-к-vps-через-remote---ssh)
+2. [ШАГ 1. Первичная настройка VPS (Ubuntu 22.04 / 24.04 LTS), Swap 4GB и зависимости](#шаг-1-первичная-настройка-vps-ubuntu-2204--2404-lts-swap-4gb-и-зависимости)
+3. [ШАГ 2. Установка и настройка базы данных PostgreSQL](#шаг-2-установка-и-настройка-базы-данных-postgresql)
+4. [ШАГ 3. Установка и настройка стриминг-движка TorrServer MatriX](#шаг-3-установка-и-настройка-стриминг-движка-torrserver-matrix)
+5. [ШАГ 4. Развертывание Prowlarr и FlareSolverr в Docker](#шаг-4-развертывание-prowlarr-и-flaresolverr-в-docker)
+6. [ШАГ 5. Настройка Prowlarr в браузере (Трекеры, Прокси, API-ключ)](#шаг-5-настройка-prowlarr-в-браузере-трекеры-прокси-api-ключ)
+7. [ШАГ 6. Клонирование, сборка и запуск Alex HD через PM2](#шаг-6-клонирование-сборка-и-запуск-alex-hd-через-pm2)
+8. [ШАГ 7. Настройка Nginx (Веб-сервер и стриминг без буферизации)](#шаг-7-настройка-nginx-веб-сервер-и-стриминг-без-буферизации)
+9. [ШАГ 8. Настройка сетевого экрана (UFW Firewall)](#шаг-8-настройка-сетевого-экрана-ufw-firewall)
+10. [ШАГ 9. Первый вход, регистрация SuperAdmin и подключение устройств к просмотру](#шаг-9-первый-вход-регистрация-superadmin-и-подключение-устройств-к-просмотру)
+11. [ШАГ 10. Диагностика, полезные команды и решение частых проблем (FAQ)](#шаг-10-диагностика-полезные-команды-и-решение-частых-проблем-faq)
 
-### 💡 Философия Zero-Disk (Почему мы не скачиваем файлы на сервер):
-В отличие от классических серверов-хранилищ (qBittorrent / Radarr / Sonarr / Plex), которым требуются накопители на **4–16 ТБ** стоимостью от 15 000 ₽/мес, **Alex HD** работает по принципу **потокового VOD-стриминга в реальном времени**:
+---
 
-1. **🎬 Каталог и Витрина (Seerr / Jellyseerr / Встроенный каталог Alex HD на TMDB API)**:
-   Пользователь выбирает фильм или серию в каталоге с постерами в 4K, трейлерами, описанием, рейтингами, актёрами и сезонами.
-2. **📡 Поисковый шлюз (Prowlarr)**:
-   При выборе фильма Prowlarr мгновенно опрашивает десятки торрент-трекеров (RuTracker, Rutor, Kinozal, NNM-Club) и передает magnet-ссылку с максимальным числом сидов и нужным дубляжом.
-3. **⚡️ Стриминг-движок (TorrServer MatriX в оперативной памяти)**:
-   Берёт magnet-ссылку, подключается к пирам и последовательно загружает только нужные фрагменты в **RAM-буфер (200 МБ)**. **На диск VPS не пишется ни единого байта (`UseDisk: false`)!**
-4. **▶️ Плеер (HTML5 / HLS / Smart TV)**:
-   Видео запускается уже через **3–5 секунд** после клика на Play. После окончания просмотра буфер оперативной памяти автоматически освобождается.
+## ШАГ 0. Подготовка VS Code и подключение к VPS через Remote - SSH
 
-### Сравнение: Торрент-качалка vs. Zero-Disk Стриминг:
+Для максимально удобной работы с сервером мы используем редактор **Visual Studio Code**. Он позволяет редактировать файлы сервера прямо в визуальном проводнике и запускать команды во встроенном терминале.
 
-| Параметр | Классическая торрент-качалка (qBittorrent / Radarr) | Наш Zero-Disk Стриминг (Alex HD + TorrServer) |
-| :--- | :--- | :--- |
-| **Хранилище на сервере** | Требуются диски на **4–16 ТБ** (очень дорого) | **0 байт на диске** (хватает 10–20 ГБ SSD за 200–300 ₽/мес) |
-| **Время ожидания** | Ждать **15–40 минут**, пока файл скачается | Старт видео **через 3–5 секунд** |
-| **Нагрузка на SSD** | Быстрый износ диска терабайтами записей | **0 износа** — всё работает в оперативной памяти (RAM) |
-| **Обслуживание** | Нужно постоянно удалять старые фильмы | Диск никогда не забивается, можно смотреть бесконечно |
+### 1. Установка расширения:
+1. Откройте **Visual Studio Code** на вашем компьютере.
+2. Перейдите во вкладку **Расширения** (Extensions) слева (`Ctrl + Shift + X` в Windows/Linux или `Cmd + Shift + X` в macOS).
+3. Введите в поиске: **`Remote - SSH`** (от Microsoft).
+4. Нажмите **Install** (Установить).
 
-### Идеальная конфигурация TorrServer для стриминга в RAM:
+### 2. Подключение к серверу:
+1. Нажмите в левом нижнем углу VS Code синюю/зеленую кнопку **`><`** (Open a Remote Window) или нажмите `F1` / `Ctrl + Shift + P` и выберите:
+   ```text
+   Remote-SSH: Connect to Host...
+   ```
+2. Выберите **Add New SSH Host...** и введите команду подключения:
+   ```text
+   ssh root@IP_ВАШЕГО_VPS
+   ```
+   *(или `ssh maxalex@IP_ВАШЕГО_VPS`, заменив `IP_ВАШЕГО_VPS` на ваш реальный IP, например `178.236.240.100`)*
+3. Выберите файл конфигурации (обычно первый: `C:\Users\username\.ssh\config` или `~/.ssh/config`).
+4. В правом нижнем углу появится уведомление `Host added!` — нажмите **Connect**.
+5. Если спросит тип операционной системы — выберите **Linux**. При запросе доверия хосту выберите **Continue**, затем введите пароль от вашего VPS.
+6. Откройте встроенный терминал VS Code через меню: **Terminal &rarr; New Terminal** (или нажмите сочетание клавиш ``Ctrl + ` ``).
 
-Выполните на VPS следующую команду через API TorrServer:
+Теперь вы находитесь в консоли вашего VPS!
+
+---
+
+## ШАГ 1. Первичная настройка VPS (Ubuntu 22.04 / 24.04 LTS), Swap 4GB и зависимости
+
+Выполните команды обновления системы, создания файла подкачки (чтобы сервер не зависал при буферизации 4K-фильмов) и установки базовых утилит:
 
 ```bash
-curl -X POST http://127.0.0.1:8090/settings/set \
-  -H "Content-Type: application/json" \
-  -d '{
-    "CacheSize": 209715200,
-    "PreloadCache": 50,
-    "UseDisk": false,
-    "ReaderReadAHead": 95,
-    "RetrackersMode": 1,
-    "TorrentDisconnectTimeout": 30
-  }'
-```
-
-* **`CacheSize: 209715200`** — 200 МБ RAM под кольцевой буфер (достаточно даже для 4K HDR Remux битрейтом 80-100 Мбит/с).
-* **`UseDisk: false`** — полный запрет на сохранение торрентов на диск VPS.
-* **`PreloadCache: 50`** — старт плеера сразу после предзагрузки половины буфера (3–5 сек).
-* **`RetrackersMode: 1`** — включение локальных пиров и ретрекеров для максимальной скорости в РФ/СНГ.
-
----
-
-# РАЗДЕЛ 1. ВАРИАНТ БЕЗ ДОМЕНА: Прямой доступ по IP:Port (All-in-One VPS)
-
-Этот вариант **идеален для быстрого старта**. Вам не нужно покупать домен, настраивать DNS-записи или мучиться с выпуском SSL-сертификатов.
-
-### 🌟 Главные преимущества работы напрямую по IP:
-1. **0 рублей расходов на домен.**
-2. **НЕТ ошибки Mixed Content**: так как весь сайт, API и TorrServer работают по протоколу `http://`, браузеры (Chrome, Edge, Safari) и Smart TV никогда не блокируют видеопотоки.
-3. **Единый сервер**: бэкенд, фронтенд, база данных, поиск Prowlarr и стриминг TorrServer крутятся на одном недорогом VPS.
-
----
-
-### Шаг 1. Подключение к чистому VPS (Ubuntu 22.04 / 24.04 LTS)
-
-```bash
-ssh root@IP_ВАШЕГО_VPS
-```
-
----
-
-### Шаг 2. Обновление системы, утилиты и Swap 4GB
-
-```bash
-# 1. Обновляем репозитории и пакеты
+# 1. Обновляем репозитории и пакеты ОС
 sudo apt update && sudo apt upgrade -y
 
-# 2. Устанавливаем системные утилиты, PostgreSQL, Nginx, компиляторы
+# 2. Устанавливаем системные утилиты, компиляторы, Nginx и PostgreSQL
 sudo apt install -y curl wget git build-essential ufw software-properties-common \
                     postgresql postgresql-contrib libpq-dev nginx \
                     htop iotop net-tools ffmpeg jq fail2ban unattended-upgrades
 
-# 3. Создаем Swap 4GB (защита от нехватки памяти при 4K стриминге)
+# 3. Настраиваем Swap 4GB (защита от нехватки оперативной памяти)
 if [ $(swapon --show | wc -l) -le 1 ]; then
   sudo fallocate -l 4G /swapfile
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
   sudo swapon /swapfile
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-  echo ">>> Swap 4GB успешно создан!"
 fi
-```
 
----
-
-### Шаг 3. Установка Node.js 20 LTS, PM2 и Docker
-
-```bash
-# 1. Устанавливаем Node.js 20.x LTS
+# 4. Устанавливаем Node.js 20 LTS и PM2 глобально
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
+sudo npm install -g npm@latest pm2@latest
 
-# 2. Устанавливаем PM2 глобально
-sudo npm install -g pm2
+# 5. Устанавливаем и запускаем Docker + Docker Compose
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-# 3. Устанавливаем Docker (для Prowlarr и FlareSolverr)
-curl -fsSL https://get.docker.com | sudo sh
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
 ```
 
 ---
 
-### Шаг 4. Настройка PostgreSQL 15+ и инициализация базы
+## ШАГ 2. Установка и настройка базы данных PostgreSQL
+
+Создадим изолированную базу данных и пользователя для Alex HD:
 
 ```bash
-# 1. Создаем пользователя базы данных и базу alexhd_db
+# Запускаем PostgreSQL и включаем автозагрузку
+sudo systemctl enable --now postgresql
+
+# Создаем пользователя, базу данных и выдаем полные права
 sudo -u postgres psql << 'EOF'
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'alexhd_user') THEN
-    CREATE USER alexhd_user WITH ENCRYPTED PASSWORD 'StrongAlexHdPass2026!';
+    CREATE ROLE alexhd_user WITH LOGIN PASSWORD 'StrongAlexHdPass2026!';
   END IF;
 END
 $$;
 
-CREATE DATABASE alexhd_db WITH OWNER alexhd_user;
+CREATE DATABASE alexhd_db OWNER alexhd_user;
 GRANT ALL PRIVILEGES ON DATABASE alexhd_db TO alexhd_user;
-\c alexhd_db
-GRANT ALL ON SCHEMA public TO alexhd_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO alexhd_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO alexhd_user;
+ALTER DATABASE alexhd_db OWNER TO alexhd_user;
 EOF
-```
-
-```bash
-# 2. Применяем схему структуры и создаем дефолтного администратора
-cat << 'EOF' > /tmp/init_schema.sql
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
-CREATE TABLE IF NOT EXISTS users (
-  id VARCHAR(64) PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  username VARCHAR(64) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(32) DEFAULT 'user' NOT NULL,
-  plan VARCHAR(32) DEFAULT 'standard' NOT NULL,
-  subscription_expires_at TIMESTAMPTZ,
-  is_blocked BOOLEAN DEFAULT FALSE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS devices (
-  id VARCHAR(64) PRIMARY KEY,
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  device_id VARCHAR(128) NOT NULL,
-  device_name VARCHAR(128) NOT NULL,
-  platform VARCHAR(32) NOT NULL,
-  last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  CONSTRAINT uq_user_device UNIQUE (user_id, device_id)
-);
-
-CREATE TABLE IF NOT EXISTS content (
-  id VARCHAR(64) PRIMARY KEY,
-  tmdb_id INTEGER UNIQUE,
-  type VARCHAR(32) NOT NULL,
-  title VARCHAR(512) NOT NULL,
-  original_title VARCHAR(512),
-  release_year SMALLINT NOT NULL,
-  age_rating VARCHAR(16),
-  rating_imdb NUMERIC(3, 1),
-  rating_tmdb NUMERIC(3, 1),
-  runtime_minutes SMALLINT,
-  overview TEXT,
-  poster_url VARCHAR(1024),
-  backdrop_url VARCHAR(1024),
-  is_4k BOOLEAN DEFAULT FALSE NOT NULL,
-  is_published BOOLEAN DEFAULT TRUE NOT NULL,
-  play_count BIGINT DEFAULT 0 NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history (
-  id VARCHAR(64) PRIMARY KEY,
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  season_id VARCHAR(64),
-  episode_id VARCHAR(64),
-  position_seconds INTEGER NOT NULL,
-  duration_seconds INTEGER NOT NULL,
-  is_finished BOOLEAN DEFAULT FALSE NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  CONSTRAINT uq_user_history_entry UNIQUE (user_id, content_id, episode_id)
-);
-
-CREATE TABLE IF NOT EXISTS favorites (
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (user_id, content_id)
-);
-
-CREATE TABLE IF NOT EXISTS watchlist (
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (user_id, content_id)
-);
-
-CREATE TABLE IF NOT EXISTS streaming_nodes (
-  id VARCHAR(64) PRIMARY KEY,
-  hostname VARCHAR(255) NOT NULL,
-  region VARCHAR(64) NOT NULL,
-  type VARCHAR(32) DEFAULT 'torrserver' NOT NULL,
-  max_capacity INTEGER DEFAULT 50 NOT NULL,
-  active_streams INTEGER DEFAULT 0 NOT NULL,
-  bandwidth_mbps INTEGER DEFAULT 0 NOT NULL,
-  cpu_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  ram_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  disk_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  is_online BOOLEAN DEFAULT TRUE NOT NULL,
-  last_heartbeat TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
--- Дефолтный Администратор: alex_admin / admin123
-INSERT INTO users (id, email, username, password_hash, role, plan, subscription_expires_at)
-VALUES (
-  'usr-admin-01',
-  'admin@smarttv.com',
-  'alex_admin',
-  '$2a$10$wN30XNq1r3mB.YxY9QJpUO7z9Q7G0Dk4B3W3T9N2B4L5K6J7H8G9A',
-  'admin',
-  '4k',
-  NOW() + INTERVAL '365 days'
-)
-ON CONFLICT (id) DO NOTHING;
-
--- Локальный узел TorrServer
-INSERT INTO streaming_nodes (id, hostname, region, type, max_capacity, is_online)
-VALUES (
-  'node-local-01',
-  '127.0.0.1:8090',
-  'Локальный стриминговый узел (RAM Cache)',
-  'torrserver',
-  100,
-  TRUE
-)
-ON CONFLICT (id) DO NOTHING;
-EOF
-
-PGPASSWORD='StrongAlexHdPass2026!' psql -h 127.0.0.1 -U alexhd_user -d alexhd_db -f /tmp/init_schema.sql
-rm /tmp/init_schema.sql
 ```
 
 ---
 
-### Шаг 5. Установка и автозапуск TorrServer MatriX (RAM Режим)
+## ШАГ 3. Установка и настройка стриминг-движка TorrServer MatriX
+
+TorrServer MatriX стримит видео в оперативную память (RAM) на лету. **На диск сервера не пишется ни единого байта!**
 
 ```bash
-# 1. Создаем каталоги
-sudo mkdir -p /opt/torrserver /var/lib/torrserver/db
-
-# 2. Скачиваем бинарник TorrServer MatriX
+# 1. Останавливаем службу (чтобы не было ошибки Text file busy при перезаписи)
+sudo systemctl stop torrserver 2>/dev/null || true
+sudo mkdir -p /opt/torrserver
 cd /opt/torrserver
-sudo wget https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -O torrserver || sudo curl -L https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -o torrserver
-sudo chmod +x torrserver
 
-# 3. Создаем системного пользователя
-sudo useradd -r -s /bin/false torruser || true
-sudo chown -R torruser:torruser /opt/torrserver /var/lib/torrserver
+# 2. Скачиваем актуальный релиз TorrServer MatriX (Linux amd64)
+sudo wget -O /opt/torrserver/TorrServer https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64
+sudo chmod +x /opt/torrserver/TorrServer
 
-# 4. Создаем службу systemd
+# 3. Создаем системную службу systemd для фоновой работы и автозапуска
 sudo tee /etc/systemd/system/torrserver.service > /dev/null << 'EOF'
 [Unit]
-Description=TorrServer MatriX Streaming Engine (Zero-Disk RAM)
-After=network.target network-online.target
-Wants=network-online.target
+Description=TorrServer MatriX Zero-Disk Streaming Engine
+After=network.target
 
 [Service]
 Type=simple
-User=torruser
-Group=torruser
+User=root
 WorkingDirectory=/opt/torrserver
-ExecStart=/opt/torrserver/torrserver -p 8090 -d /var/lib/torrserver/db
+ExecStart=/opt/torrserver/TorrServer -d /opt/torrserver -p 8090
 Restart=always
-RestartSec=3
-LimitNOFILE=65536
-LimitNPROC=65536
-MemoryMax=3G
-MemoryHigh=2.5G
+RestartSec=5
+KillMode=process
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 5. Тюнинг сетевых буферов ядра Linux для 4K HDR (BBR)
-sudo tee /etc/sysctl.d/99-torrserver.conf > /dev/null << 'EOF'
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.rmem_default = 33554432
-net.core.wmem_default = 33554432
-net.core.netdev_max_backlog = 10000
-net.core.somaxconn = 4096
-net.ipv4.tcp_rmem = 4096 87380 33554432
-net.ipv4.tcp_wmem = 4096 65536 33554432
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_tw_reuse = 1
-EOF
-
-sudo sysctl --system
+# 4. Перезагружаем демоны и запускаем TorrServer
 sudo systemctl daemon-reload
 sudo systemctl enable --now torrserver
 
-# 6. Применяем RAM настройки к TorrServer
-sleep 2
-curl -X POST http://127.0.0.1:8090/settings/set \
-  -H "Content-Type: application/json" \
-  -d '{"CacheSize":209715200,"PreloadCache":50,"UseDisk":false,"ReaderReadAHead":95,"RetrackersMode":1,"TorrentDisconnectTimeout":30}'
+# 5. Применяем конфигурацию RAM-буфера 200MB через API
+sleep 3
+curl -s -X POST http://127.0.0.1:8090/settings -H "Content-Type: application/json" -d '{"action":"set","sets":{"CacheSize":209715200,"PreloadCache":50,"UseDisk":false,"ReaderReadAHead":95,"RetrackersMode":1,"TorrentDisconnectTimeout":30}}'
 ```
 
 ---
 
-### Шаг 6. Развертывание Prowlarr и FlareSolverr (Docker)
+## ШАГ 4. Развертывание Prowlarr и FlareSolverr в Docker
+
+Prowlarr отвечает за поиск фильмов по трекерам (RuTracker, Rutor, NNM-Club), а FlareSolverr решает проверки Cloudflare в фоне.
 
 ```bash
-# 1. Запуск FlareSolverr (для решения Cloudflare капч)
+# 1. Останавливаем старые контейнеры, если были
+sudo docker rm -f prowlarr flaresolverr 2>/dev/null || true
+
+# 2. Создаем изолированную сеть для общения сервисов
+sudo docker network create alexhd-net 2>/dev/null || true
+
+# 3. Создаем папку под конфиг Prowlarr
+sudo mkdir -p /opt/prowlarr/config
+sudo chmod -R 777 /opt/prowlarr/config
+
+# 4. Запускаем FlareSolverr (с памятью 1GB для Chromium и правами песочницы)
 sudo docker run -d \
   --name=flaresolverr \
+  --network=alexhd-net \
   -p 8191:8191 \
   -e LOG_LEVEL=info \
   -e TZ=Europe/Moscow \
+  --security-opt seccomp=unconfined \
+  --cap-add=SYS_ADMIN \
+  --shm-size=1g \
   --restart always \
   ghcr.io/flaresolverr/flaresolverr:latest
 
-# 2. Запуск Prowlarr
-sudo mkdir -p /opt/prowlarr/config
+# 5. (Рекомендуется для РФ) Запускаем Tor SOCKS5 прокси для обхода блокировки RuTracker/NNM-Club
+sudo docker run -d \
+  --name=tor-socks-proxy \
+  --network=alexhd-net \
+  -p 9050:9050 \
+  --restart always \
+  peterdaveheller/tor-socks-proxy:latest
+
+# 6. Запускаем Prowlarr в той же сети
 sudo docker run -d \
   --name=prowlarr \
+  --network=alexhd-net \
   -p 9696:9696 \
-  -dns 77.88.8.8 \
-  -dns 1.1.1.1 \
+  --dns 77.88.8.8 \
+  --dns 1.1.1.1 \
   -e PUID=1000 \
   -e PGID=1000 \
   -e TZ=Europe/Moscow \
@@ -364,30 +215,81 @@ sudo docker run -d \
   lscr.io/linuxserver/prowlarr:latest
 ```
 
-* Откройте веб-панель Prowlarr в браузере: `http://IP_ВАШЕГО_VPS:9696`.
-* Перейдите в **Settings &rarr; General** и скопируйте **API Key**.
-* Перейдите в **Settings &rarr; Indexers &rarr; Proxies &rarr; + (Add)** &rarr; выберите **FlareSolverr** &rarr; укажите Host `http://127.0.0.1:8191` &rarr; нажмите **Test & Save**.
-* В разделе **Indexers** добавьте: **Rutor**, **RuTracker**, **Kinozal**, **NNM-Club**.
+---
+
+## ШАГ 5. Настройка Prowlarr в браузере (Трекеры, Прокси для РФ, API-ключ)
+
+1. Откройте в браузере страницу: **`http://IP_ВАШЕГО_VPS:9696`** *(например `http://178.236.240.100:9696`)*.
+2. **Подключение FlareSolverr (Прокси)**:
+   * Перейдите в **Settings &rarr; Indexers**.
+   * В блоке **Proxies** нажмите **+ (Add Proxy)** &rarr; выберите **FlareSolverr**.
+   * В поле **Host** укажите:
+     ```text
+     http://flaresolverr:8191
+     ```
+   * В поле **Request Timeout** укажите: `60`.
+   * Поле **Tags** оставьте пустым.
+   * Нажмите **Test** (появится зеленая галочка) &rarr; **Save**.
+
+3. **🇷🇺 Настройка SOCKS5 Прокси для обхода блокировки RuTracker**:
+   * В **Settings &rarr; Indexers &rarr; Proxies** нажмите **+ (Add Proxy)** &rarr; выберите **Socks5 Proxy** (или **HTTP Proxy**, если у вас свой купленный прокси).
+   * Заполните поля:
+     * **Name**: `Tor Bypass RuTracker`
+     * **Host**: `tor-socks-proxy` *(или `127.0.0.1`, если прокси вне Docker)*
+     * **Port**: `9050`
+     * **Tags**: `proxy` *(нажмите Enter после ввода слова proxy, чтобы зафиксировать тег)*
+   * Нажмите **Test** (зеленая галочка) &rarr; **Save**.
+
+4. **Добавление трекеров**:
+   * Перейдите в раздел **Indexers** &rarr; нажмите **+ Add Indexer**:
+     * **Rutor**: введите `Rutor` &rarr; нажмите на него &rarr; поле **Tags** оставьте пустым (работает напрямую!) &rarr; нажмите **Save**.
+     * **RuTracker.org**:
+       * Введите `RuTracker.org`
+       * В поле **Tags** введите `proxy` (чтобы запрос шел через SOCKS5 прокси!)
+       * В поле **Base Url** выберите `https://rutracker.org/` или `https://rutracker.net/`
+       * Введите ваши **Username** и **Password** от RuTracker
+       * Включите **Use Magnet Links**
+       * Нажмите **Save**.
+     * **NNM-Club**:
+       * Введите `NNM-Club` &rarr; в поле **Tags** введите `proxy` &rarr; выберите зеркало `https://nnmclub.to/` &rarr; нажмите **Save**.
+     * **Kinozal.tv**: введите логин и пароль от Кинозала &rarr; нажмите **Save**.
+
+5. **Копирование API-ключа**:
+   * Перейдите в **Settings &rarr; General**.
+   * В блоке **Security** найдите строку **API Key** и скопируйте ваш 32-значный ключ.
+
+6. **🎬 Подключение медиа-приложений (Jellyseerr, Overseerr, Radarr, Sonarr)**:
+   Prowlarr умеет автоматически синхронизировать все настроенные трекеры с каталогами фильмов и сериалов:
+   * Перейдите в **Settings &rarr; Applications &rarr; + (Add)**.
+   * Выберите приложение (например **Radarr** для фильмов или **Sonarr** для сериалов).
+   * Укажите:
+     * **Prowlarr Server**: `http://prowlarr:9696`
+     * **Radarr/Sonarr Server**: `http://radarr:7878` (или `http://sonarr:8989`)
+     * **API Key**: API-ключ из настроек соответствующего приложения.
+   * Нажмите **Test** &rarr; **Save**.
+   * Все трекеры (Rutor, RuTracker, NNM-Club) мгновенно синхронизируются, и **Jellyseerr/Overseerr** сможет запрашивать фильмы и сериалы в 1 клик!
 
 ---
 
-### Шаг 7. Сборка и запуск Alex HD на VPS
+## ШАГ 6. Клонирование, сборка и запуск Alex HD через PM2
 
-Фронтенд собирается прямо на сервере и автоматически раздаётся бэкендом из папки `dist`:
+Соберем проект и запустим бэкенд с автозагрузкой:
 
 ```bash
+# 1. Останавливаем старые процессы PM2 (если были)
+pm2 delete all 2>/dev/null || true
+
+# 2. Подготавливаем директорию
 sudo mkdir -p /var/www/alexhd
 sudo chown -R $USER:$USER /var/www/alexhd
 cd /var/www/alexhd
+rm -rf /var/www/alexhd/* /var/www/alexhd/.* 2>/dev/null || true
 
-# Клонируем репозиторий
-git clone ВАШ_URL_РЕПОЗИТОРИЯ .
+# 3. Клонируем репозиторий прямо в текущую папку (точка на конце обязательна!)
+git clone https://github.com/Zakkkie/Alex-HD.git .
 
-# Устанавливаем зависимости и собираем проект
-npm install
-npm run build
-
-# Создаем боевой файл .env
+# 4. Создаем боевой конфигурационный файл .env
+# Замените ВАШ_API_КЛЮЧ_PROWLARR на ключ, скопированный в Шаге 5
 cat << 'EOF' > /var/www/alexhd/.env
 PORT=3000
 NODE_ENV=production
@@ -396,11 +298,16 @@ JWT_SECRET=super_secret_jwt_alexhd_production_token_8899221100ffaa
 MAX_DEVICES_PER_USER=3
 TORRSERVER_URL=http://127.0.0.1:8090
 PROWLARR_URL=http://127.0.0.1:9696
-PROWLARR_API_KEY=ВАШ_API_КЛЮЧ_ИЗ_PROWLARR
-TMDB_API_KEY=
+PROWLARR_API_KEY=7ebafdf93c6b4df2aa87d6584641c942
+TMDB_API_KEY=8ad0507b40ebd45a065a73530395afd1
 EOF
 
-# Конфигурация запуска PM2
+# 5. Устанавливаем зависимости и собираем продакшн-версию
+npm install
+npm run build
+
+# 6. Создаем конфигурацию PM2
+mkdir -p /var/www/alexhd/logs
 cat << 'EOF' > /var/www/alexhd/ecosystem.config.cjs
 module.exports = {
   apps: [
@@ -417,26 +324,25 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3000
       },
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
       error_file: '/var/www/alexhd/logs/pm2-error.log',
-      out_file: '/var/www/alexhd/logs/pm2-out.log',
-      merge_logs: true
+      out_file: '/var/www/alexhd/logs/pm2-out.log'
     }
   ]
 };
 EOF
 
-mkdir -p /var/www/alexhd/logs
-pm2 start ecosystem.config.cjs
+# 7. Запускаем Alex HD и включаем автозагрузку при перезагрузке VPS
+pm2 start /var/www/alexhd/ecosystem.config.cjs
 pm2 save
-pm2 startup
+pm2 startup | tail -n 1 | bash 2>/dev/null || true
 ```
 
 ---
 
-### Шаг 8. Настройка Nginx на 80 порт (Чтобы заходить без указания :3000)
+## ШАГ 7. Настройка Nginx (Веб-сервер и стриминг без буферизации)
 
-Создайте простой конфиг в `/etc/nginx/sites-available/default`:
+Nginx объединяет веб-приложение (порт 3000) и скоростной видеопоток TorrServer (порт 8090) на стандартном **порту 80**:
 
 ```bash
 sudo tee /etc/nginx/sites-available/default > /dev/null << 'EOF'
@@ -447,7 +353,7 @@ server {
 
     client_max_body_size 100M;
 
-    # Стриминг TorrServer (без буферизации для 4K)
+    # Стриминг видео через TorrServer (без буферизации для плавного 4K)
     location /torrserver/ {
         proxy_pass http://127.0.0.1:8090/;
         proxy_buffering off;
@@ -457,7 +363,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # Основное веб-приложение Alex HD и API
+    # Основное веб-приложение Alex HD и REST API
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -471,688 +377,452 @@ server {
 }
 EOF
 
+# Проверяем конфиг и перезапускаем Nginx
 sudo nginx -t && sudo systemctl restart nginx
 ```
 
 ---
 
-### Шаг 9. Настройка Брандмауэра UFW (Открытие портов)
+## ШАГ 8. Настройка сетевого экрана (UFW Firewall)
+
+Откроем необходимые порты для безопасной работы:
 
 ```bash
+# Разрешаем SSH, Веб (HTTP/HTTPS), Alex HD, TorrServer и Prowlarr
 sudo ufw allow 22/tcp comment 'SSH'
-sudo ufw allow 80/tcp comment 'HTTP (Nginx)'
-sudo ufw allow 3000/tcp comment 'Alex HD Core Direct'
-sudo ufw allow 8090/tcp comment 'TorrServer Direct'
-sudo ufw allow 9696/tcp comment 'Prowlarr Web/API'
-sudo ufw allow 35432/tcp comment 'TorrServer DHT TCP'
-sudo ufw allow 35432/udp comment 'TorrServer DHT UDP'
-sudo ufw allow 51413/tcp comment 'TorrServer Peer Wire TCP'
-sudo ufw allow 51413/udp comment 'TorrServer Peer Wire UDP'
+sudo ufw allow 80/tcp comment 'HTTP (Alex HD)'
+sudo ufw allow 443/tcp comment 'HTTPS'
+sudo ufw allow 3000/tcp comment 'Alex HD Direct Port'
+sudo ufw allow 8090/tcp comment 'TorrServer Direct Port'
+sudo ufw allow 9696/tcp comment 'Prowlarr Web Panel'
+
+# Включаем фаервол
 sudo ufw --force enable
 sudo ufw status
 ```
 
 ---
 
-### Шаг 10. Как открывать приложение:
+## ШАГ 9. Первый вход, регистрация SuperAdmin и подключение устройств к просмотру
 
-* **Сайт и Плеер**: `http://IP_ВАШЕГО_VPS` (или `http://IP_ВАШЕГО_VPS:3000`)
-* **Вход в панель управления**: перейдите в `/admin` &rarr; логин `alex_admin`, пароль `admin123`.
-* **TorrServer веб-интерфейс**: `http://IP_ВАШЕГО_VPS:8090`
-* **Prowlarr веб-интерфейс**: `http://IP_ВАШЕГО_VPS:9696`
-* **Подключение Smart TV (Media Station X / MSX)**:
-  1. В приложении Media Station X на телевизоре откройте **Settings &rarr; Start Parameter &rarr; Setup**.
-  2. Введите адрес: `http://IP_ВАШЕГО_VPS/msx.json` (или `http://IP_ВАШЕГО_VPS:3000/msx.json`) и нажмите **Confirm**.
-
----
-
-# РАЗДЕЛ 2. Вариант 2 (Vercel CDN + Выделенный VPS)
-
-Если вы хотите, чтобы пользовательский интерфейс загружался моментально с глобальных серверов Vercel:
-
-1. Разверните бэкенд, PostgreSQL, TorrServer и Prowlarr на VPS по инструкции из **Раздела 1** (Шаги 1–6, 9).
-2. Зайдите на **[vercel.com](https://vercel.com/)** &rarr; **Add New Project** &rarr; импортируйте репозиторий.
-3. В **Environment Variables** укажите:
-   * `VITE_API_URL` = `http://IP_ВАШЕГО_VPS:3000`
-   * `VITE_TORRSERVER_URL` = `http://IP_ВАШЕГО_VPS:8090`
-4. Нажмите **Deploy**.
-5. Адрес для Smart TV в Media Station X: `https://ваш-проект.vercel.app/msx.json`.
-
-> ⚠️ **Примечание для браузера ПК при просмотре через Vercel (HTTPS):**
-> Браузеры могут заблокировать HTTP-видеопоток с TorrServer из-за политики Mixed Content. В Chrome нажмите на значок замка / настроек сайта слева от адресной строки и выберите **"Небезопасное содержимое" &rarr; "Разрешить"**. На Smart TV (Media Station X) такой проблемы нет.
+### 1. Первый вход и права SuperAdmin:
+1. Откройте в браузере на ПК или смартфоне: **`http://IP_ВАШЕГО_VPS/`** *(например `http://178.236.240.100/`)*.
+2. Нажмите **Зарегистрироваться** (Sign Up) и создайте ваш аккаунт (логин и пароль).
+3. **Первый созданный аккаунт в системе автоматически получает статус Главного Администратора (SuperAdmin)**.
+4. Перейдите в **Админ-панель** (кнопка в меню пользователя) &rarr; вкладка **Prowlarr** &rarr; убедитесь, что указаны:
+   * URL: `http://127.0.0.1:9696`
+   * API Key: ваш ключ из Prowlarr
+   * Нажмите **Сохранить и проверить**.
 
 ---
 
-# РАЗДЕЛ 3. Защита VPS: Fail2ban, SSH-ключи и Hardening
+### 2. Как смотреть кино на любых устройствах:
 
-### 1. Установка и настройка Fail2ban
+#### 💻 ПК, Ноутбуки, Смартфоны (Android / iPhone / iPad):
+* Просто откройте в любом браузере: **`http://IP_ВАШЕГО_VPS/`**
+* Выберите фильм или сериал &rarr; выберите качество раздачи (4K / 1080p / озвучка) &rarr; нажмите **Смотреть**. Видео запустится во встроенном плеере через 3–5 секунд.
 
-Создайте конфигурационный файл `/etc/fail2ban/jail.local`:
+#### 📺 Smart TV (Samsung Tizen, LG webOS, Hisense VIDAA):
+* **Способ 1 (Через встроенный браузер ТВ)**:
+  1. Откройте браузер на вашем телевизоре.
+  2. Перейдите по адресу `http://IP_ВАШЕГО_VPS/`.
+  3. Войдите в свой аккаунт. Разверните плеер на весь экран.
+* **Способ 2 (Через приложение Media Station X / MSX)**:
+  1. Установите бесплатное приложение **Media Station X** из официального магазина приложений вашего ТВ (Samsung Apps / LG Content Store).
+  2. Зайдите в **Settings &rarr; Start Parameter &rarr; Setup** и укажите адрес плеера `http://IP_ВАШЕГО_VPS/`.
+
+#### 🍏 Apple TV / Android TV / Google TV / ТВ-приставки:
+* Откройте браузер ТВ или передавайте поток через **AirPlay / Chromecast** прямо со смартфона или ПК в один клик!
+
+---
+
+## ШАГ 10. Диагностика, полезные команды и решение частых проблем (FAQ)
+
+### Быстрая проверка статуса всех служб:
+```bash
+# 1. Проверка Alex HD (PM2)
+pm2 status
+
+# 2. Проверка TorrServer
+sudo systemctl status torrserver
+
+# 3. Проверка Nginx
+sudo systemctl status nginx
+
+# 4. Проверка Prowlarr и FlareSolverr
+sudo docker ps
+```
+
+---
+
+### ❓ Что делать, если забыли пароль от Prowlarr:
+Выполните одну команду на сервере, чтобы сбросить пароль без потери трекеров:
+```bash
+sudo sed -i 's/<AuthenticationMethod>.*<\/AuthenticationMethod>/<AuthenticationMethod>None<\/AuthenticationMethod>/g' /opt/prowlarr/config/config.xml
+sudo docker restart prowlarr
+```
+
+---
+
+### ❓ Ошибка Torznab 503 / 404 в TorrServer:
+* В настройках TorrServer указывайте адрес конкретного трекера: **`http://127.0.0.1:9696/1/api`** (где `1` — номер трекера в Prowlarr), а не адрес с внешним IP!
+
+---
+
+### ❓ Ошибка SSL при добавлении RuTracker:
+* В выпадающем списке **Base Url** выберите рабочее зеркало **`https://rutracker.net/`** или **`https://rutracker.nl/`** и поставьте галочку **Use Magnet Links**.
+* Если провайдер полностью блокирует доступ к RuTracker в РФ — используйте встроенный **Tor SOCKS5 прокси** (см. руководство ниже).
+
+---
+
+## 🇷🇺 ПОЛНОЕ РУКОВОДСТВО: СОЗДАНИЕ И НАСТРОЙКА ПРОКСИ ДЛЯ RUTRACKER
+
+Если ваш сервер или домашний провайдер находится в РФ, прямые запросы к `rutracker.org` и `nnmclub.to` могут блокироваться на уровне DPI/ТСПУ. Вот 3 способа поднять и подключить прокси.
+
+### Вариант 1 (Рекомендуемый): Автоматический Tor SOCKS5 Прокси в Docker
+
+Запустите контейнер прямо на вашем VPS в общей сети `alexhd-net`:
 
 ```bash
-sudo bash -c 'cat > /etc/fail2ban/jail.local << "EOF"
-[DEFAULT]
-bantime = 24h
-findtime = 10m
-maxretry = 3
-banaction = ufw
-ignoreip = 127.0.0.1/8 ::1
-
-[sshd]
-enabled = true
-port = ssh
-logpath = %(sshd_log)s
-backend = %(sshd_backend)s
-
-[nginx-http-auth]
-enabled = true
-port = http,https
-
-[nginx-botsearch]
-enabled = true
-port = http,https
-maxretry = 2
-EOF'
-
-sudo systemctl restart fail2ban
-sudo systemctl enable fail2ban
-```
-
-**Команды управления Fail2ban:**
-* Проверить заблокированные IP: `sudo fail2ban-client status sshd`
-* Разблокировать IP: `sudo fail2ban-client set sshd unbanip 1.2.3.4`
-
-### 2. SSH Hardening (Вход строго по ключам, отключение паролей)
-
-1. **Скопируйте ваш публичный ключ на VPS с домашнего компьютера:**
-   ```bash
-   ssh-copy-id root@IP_ВАШЕГО_VPS
-   ```
-2. **Проверьте, что вход по ключу работает без пароля.**
-3. **Отключите аутентификацию по паролю на VPS:**
-   ```bash
-   sudo bash -c 'echo "PasswordAuthentication no" >> /etc/ssh/sshd_config.d/99-disable-passwords.conf'
-   sudo bash -c 'echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config.d/99-disable-passwords.conf'
-   sudo systemctl restart ssh || sudo systemctl restart sshd
-   ```
-
-### 3. Защита от брутфорса на уровне ядра (UFW Rate Limit)
-
-```bash
-sudo ufw limit 22/tcp comment 'Anti-brute force rate limit'
-```
-
----
-
-# РАЗДЕЛ 4. Prowlarr: Трекеры, Индексаторы и FlareSolverr
-
-### Почему TMDB + Prowlarr вместо IMDb:
-* **TMDB API** — обеспечивает быструю и красивую витрину (постеры 4K, актеры, русские/английские названия, трейлеры, описания).
-* **Prowlarr** — поисковый шлюз, опрашивающий реальные торрент-трекеры в реальном времени.
-
-### Рекомендуемый список трекеров для добавления в Prowlarr:
-1. **RuTracker.org** *(требуется аккаунт)* — самый полный каталог дубляжей, редких фильмов и коллекций.
-2. **Rutor (rutor.info)** *(без регистрации)* — открытый трекер со всеми свежими новинками кинопроката.
-3. **Kinozal.tv** *(требуется аккаунт)* — премиальные студийные озвучки (Red Head Sound, Flarrow Films, HDRezka).
-4. **NNM-Club** *(без регистрации)* — лучшие 4K HDR / Dolby Vision Remux релизы с многоканальным звуком.
-5. **LostFilm.tv** *(требуется аккаунт)* — зарубежные сериалы в топовом дубляже.
-6. **1337x / TorrentGalaxy** *(без регистрации)* — оригиналы на английском языке с Dolby Atmos.
-
-### Подключение FlareSolverr в Prowlarr (Обход Cloudflare):
-1. В веб-панели Prowlarr (`http://IP_VPS:9696`) перейдите в **Settings &rarr; Indexers**.
-2. В секции **Proxies** нажмите **+ (Add Proxy)** и выберите **FlareSolverr**.
-3. В поле **Host** укажите: `http://127.0.0.1:8191`.
-4. Нажмите **Test** &rarr; **Save**. Теперь проверки Cloudflare и капчи трекеров решаются автоматически в фоне.
-
----
-
-# РАЗДЕЛ 5. Вариант со своим доменом и Nginx + SSL (Если домен есть)
-
-Конфигурация `/etc/nginx/sites-available/alexhd.conf`:
-
-```nginx
-proxy_cache_path /var/cache/nginx/alexhd_posters
-    levels=1:2
-    keys_zone=posters_cache:30m
-    max_size=5g
-    inactive=14d
-    use_temp_path=off;
-
-server {
-    listen 80;
-    server_name tv.yourdomain.com;
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    server_name tv.yourdomain.com;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    add_header 'Access-Control-Allow-Origin' '*' always;
-    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-    add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Device-Id' always;
-    add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range,Accept-Ranges' always;
-
-    location /msx.json {
-        alias /var/www/alexhd/public/msx.json;
-        add_header Content-Type application/json;
-        add_header Access-Control-Allow-Origin *;
-    }
-
-    location /t/p/ {
-        proxy_pass https://image.tmdb.org/t/p/;
-        proxy_cache posters_cache;
-        proxy_cache_valid 200 30d;
-        expires 30d;
-    }
-
-    # Стриминг TorrServer (Обязательно без буферизации Nginx!)
-    location /torrserver/ {
-        proxy_pass http://127.0.0.1:8090/;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_read_timeout 86400s;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-Активация и получение SSL через Certbot:
-```bash
-sudo ln -sf /etc/nginx/sites-available/alexhd.conf /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo certbot --nginx -d tv.yourdomain.com --non-interactive --agree-tos -m admin@yourdomain.com
-sudo nginx -t && sudo systemctl restart nginx
-```
-
----
-
-# РАЗДЕЛ 6. Вариант Docker Compose (Полный изолированный стек)
-
-Создайте файл `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  torrserver:
-    image: yourok/torrserver:latest
-    container_name: alexhd-torrserver
-    restart: always
-    network_mode: host
-    environment:
-      - TS_PORT=8090
-      - TS_DONTKILL=1
-    volumes:
-      - /var/lib/torrserver/db:/opt/torrserver/db
-
-  prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
-    container_name: alexhd-prowlarr
-    restart: always
-    network_mode: host
-    dns:
-      - 77.88.8.8
-      - 1.1.1.1
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Moscow
-    volumes:
-      - /opt/prowlarr/config:/config
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: alexhd-flaresolverr
-    restart: always
-    ports:
-      - "8191:8191"
-    environment:
-      - LOG_LEVEL=info
-      - TZ=Europe/Moscow
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: alexhd-postgres
-    restart: always
-    environment:
-      POSTGRES_DB: alexhd_db
-      POSTGRES_USER: alexhd_user
-      POSTGRES_PASSWORD: StrongAlexHdPass2026!
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - /var/lib/postgresql/data:/var/lib/postgresql/data
-```
-
-Запуск:
-```bash
-docker compose up -d
-```
-
----
-
-# РАЗДЕЛ 7. Вариант: Легковесный режим (Только TorrServer)
-
-```bash
-sudo mkdir -p /opt/torrserver /var/lib/torrserver/db
-cd /opt/torrserver
-sudo wget https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -O torrserver
-sudo chmod +x torrserver
-sudo nohup /opt/torrserver/torrserver -p 8090 -d /var/lib/torrserver/db > /var/log/torrserver.log 2>&1 &
-sudo ufw allow 8090/tcp
-```
-
----
-
-# РАЗДЕЛ 8. Чек-лист проверки и Решение типовых проблем (Troubleshooting)
-
-### Чек-лист проверки готовности системы:
-
-| Компонент | Команда проверки | Ожидаемый результат |
-|---|---|---|
-| **TorrServer** | `curl -s http://127.0.0.1:8090/echo` | `MatriX.134` (или выше) |
-| **Prowlarr** | `curl -s http://127.0.0.1:9696/ping` | `{"status":"OK"}` |
-| **FlareSolverr** | `curl -s http://127.0.0.1:8191/` | `{"msg":"FlareSolverr is ready!"}` |
-| **PostgreSQL** | `pg_isready -h 127.0.0.1 -p 5432` | `accepting connections` |
-| **Core API** | `curl -s http://127.0.0.1:3000/api/v1/health` | `{"status":"ok","database":"connected"}` |
-| **PM2 статус** | `pm2 status` | Сервис `alexhd-core` в статусе `online` |
-| **Fail2ban** | `sudo fail2ban-client status sshd` | Статус службы и список заблокированных IP |
-
----
-
-### Решение типовых проблем:
-
-1. **Ошибка Mixed Content в браузере на ПК при работе через Vercel**:
-   * *Причина*: Фронтенд на Vercel открыт по `https://`, а TorrServer отдает видео по `http://IP:8090`. Браузеры блокируют HTTP-видео внутри HTTPS.
-   * *Решение*:
-     1. Используйте **Вариант 1 (БЕЗ домена)** — открывайте сайт по `http://IP_ВАШЕГО_VPS` (или `http://IP_ВАШЕГО_VPS:3000`). Тогда ошибки Mixed Content не будет вообще!
-     2. На Smart TV (через Media Station X / MSX) этой проблемы нет, видео играет напрямую.
-     3. На ПК в Chrome/Edge нажмите на иконку «Настройки сайта» слева от адресной строки и установите пункт **«Небезопасный контент» (Insecure content)** в значение **«Разрешить» (Allow)**.
-2. **0 пиров / Скорость 0 KB/s**:
-   * *Причина*: Закрыты P2P-порты в фаерволе.
-   * *Решение*: Выполните `sudo ufw allow 35432/tcp && sudo ufw allow 35432/udp && sudo ufw allow 51413/tcp && sudo ufw allow 51413/udp`.
-3. **Видео зависает каждые 5–10 секунд**:
-   * *Причина*: В Nginx включена буферизация 4K потока.
-   * *Решение*: В блоке `location /torrserver/` конфигурации Nginx обязательно укажите `proxy_buffering off;`.
-4. **Prowlarr не находит торренты на RuTracker/Rutor**:
-   * *Причина*: Локальный DNS хостинга блокирует домены трекеров или срабатывает Cloudflare защита.
-   * *Решение*: Запускайте Prowlarr с DNS `77.88.8.8` и подключите FlareSolverr прокси в настройках Prowlarr.
-
-
-### 💡 Философия Zero-Disk (Почему мы не скачиваем файлы на сервер):
-В отличие от классических серверов-хранилищ (qBittorrent / Radarr / Sonarr / Plex), которым требуются накопители на **4–16 ТБ** стоимостью от 15 000 ₽/мес, **Alex HD** работает по принципу **потокового VOD-стриминга в реальном времени**:
-
-1. **🎬 Каталог и Витрина (Seerr / Jellyseerr / Встроенный каталог Alex HD на TMDB API)**:
-   Пользователь выбирает фильм или серию в каталоге с постерами в 4K, трейлерами, описанием, рейтингами, актёрами и сезонами.
-2. **📡 Поисковый шлюз (Prowlarr)**:
-   При выборе фильма Prowlarr мгновенно опрашивает десятки торрент-трекеров (RuTracker, Rutor, Kinozal, NNM-Club) и передает magnet-ссылку с максимальным числом сидов и нужным дубляжом.
-3. **⚡️ Стриминг-движок (TorrServer MatriX в оперативной памяти)**:
-   Берёт magnet-ссылку, подключается к пирам и последовательно загружает только нужные фрагменты в **RAM-буфер (200 МБ)**. **На диск VPS не пишется ни единого байта (`UseDisk: false`)!**
-4. **▶️ Плеер (HTML5 / HLS / Smart TV)**:
-   Видео запускается уже через **3–5 секунд** после клика на Play. После окончания просмотра буфер оперативной памяти автоматически освобождается.
-
-### Сравнение: Торрент-качалка vs. Zero-Disk Стриминг:
-
-| Параметр | Классическая торрент-качалка (qBittorrent / Radarr) | Наш Zero-Disk Стриминг (Alex HD + TorrServer) |
-| :--- | :--- | :--- |
-| **Хранилище на сервере** | Требуются диски на **4–16 ТБ** (очень дорого) | **0 байт на диске** (хватает 10–20 ГБ SSD за 200–300 ₽/мес) |
-| **Время ожидания** | Ждать **15–40 минут**, пока файл скачается | Старт видео **через 3–5 секунд** |
-| **Нагрузка на SSD** | Быстрый износ диска терабайтами записей | **0 износа** — всё работает в оперативной памяти (RAM) |
-| **Обслуживание** | Нужно постоянно удалять старые фильмы | Диск никогда не забивается, можно смотреть бесконечно |
-
-### Идеальная конфигурация TorrServer для стриминга в RAM:
-
-Выполните на VPS следующую команду через API TorrServer:
-
-```bash
-curl -X POST http://127.0.0.1:8090/settings/set \
-  -H "Content-Type: application/json" \
-  -d '{
-    "CacheSize": 209715200,
-    "PreloadCache": 50,
-    "UseDisk": false,
-    "ReaderReadAHead": 95,
-    "RetrackersMode": 1,
-    "TorrentDisconnectTimeout": 30
-  }'
-```
-
-* **`CacheSize: 209715200`** — 200 МБ RAM под кольцевой буфер (достаточно даже для 4K HDR Remux битрейтом 80-100 Мбит/с).
-* **`UseDisk: false`** — полный запрет на сохранение торрентов на диск VPS.
-* **`PreloadCache: 50`** — старт плеера сразу после предзагрузки половины буфера (3–5 сек).
-* **`RetrackersMode: 1`** — включение локальных пиров и ретрекеров для максимальной скорости в РФ/СНГ.
-
----
-
-# РАЗДЕЛ 1. Вариант 1 (Vercel + Выделенный VPS) — Пошаговое развертывание
-
-### Шаг 1. Подключение к чистому VPS (Ubuntu 22.04 / 24.04 LTS)
-
-```bash
-ssh root@IP_ВАШЕГО_VPS
-```
-
----
-
-### Шаг 2. Обновление системы, утилиты и файл подкачки (Swap 4GB)
-
-Swap 4GB гарантирует, что сервер не упадёт при пиковых нагрузках при одновременном просмотре нескольких 4K-потоков:
-
-```bash
-# 1. Обновляем репозитории и пакеты
-sudo apt update && sudo apt upgrade -y
-
-# 2. Устанавливаем системные утилиты, компиляторы и PostgreSQL
-sudo apt install -y curl wget git build-essential ufw software-properties-common \
-                    postgresql postgresql-contrib libpq-dev \
-                    htop iotop net-tools ffmpeg jq fail2ban unattended-upgrades
-
-# 3. Создаем Swap 4GB
-if [ $(swapon --show | wc -l) -le 1 ]; then
-  sudo fallocate -l 4G /swapfile
-  sudo chmod 600 /swapfile
-  sudo mkswap /swapfile
-  sudo swapon /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-  echo ">>> Swap 4GB успешно создан!"
-fi
-```
-
----
-
-### Шаг 3. Установка Node.js 20 LTS, Docker и PM2
-
-```bash
-# 1. Устанавливаем Node.js 20.x LTS
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# 2. Устанавливаем PM2 глобально
-sudo npm install -g pm2
-
-# 3. Устанавливаем Docker & Docker Compose (для Prowlarr и FlareSolverr)
-curl -fsSL https://get.docker.com | sudo sh
-sudo systemctl enable --now docker
-```
-
----
-
-### Шаг 4. Настройка PostgreSQL 15+ и инициализация базы данных
-
-```bash
-# 1. Создаем пользователя базы данных и базу
-sudo -u postgres psql << 'EOF'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'alexhd_user') THEN
-    CREATE USER alexhd_user WITH ENCRYPTED PASSWORD 'StrongAlexHdPass2026!';
-  END IF;
-END
-$$;
-
-CREATE DATABASE alexhd_db WITH OWNER alexhd_user;
-GRANT ALL PRIVILEGES ON DATABASE alexhd_db TO alexhd_user;
-\c alexhd_db
-GRANT ALL ON SCHEMA public TO alexhd_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO alexhd_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO alexhd_user;
-EOF
-```
-
-```bash
-# 2. Применяем схему структуры и создаем дефолтного администратора
-cat << 'EOF' > /tmp/init_schema.sql
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
-CREATE TABLE IF NOT EXISTS users (
-  id VARCHAR(64) PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
-  username VARCHAR(64) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  role VARCHAR(32) DEFAULT 'user' NOT NULL,
-  plan VARCHAR(32) DEFAULT 'standard' NOT NULL,
-  subscription_expires_at TIMESTAMPTZ,
-  is_blocked BOOLEAN DEFAULT FALSE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS devices (
-  id VARCHAR(64) PRIMARY KEY,
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  device_id VARCHAR(128) NOT NULL,
-  device_name VARCHAR(128) NOT NULL,
-  platform VARCHAR(32) NOT NULL,
-  last_active_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  CONSTRAINT uq_user_device UNIQUE (user_id, device_id)
-);
-
-CREATE TABLE IF NOT EXISTS content (
-  id VARCHAR(64) PRIMARY KEY,
-  tmdb_id INTEGER UNIQUE,
-  type VARCHAR(32) NOT NULL,
-  title VARCHAR(512) NOT NULL,
-  original_title VARCHAR(512),
-  release_year SMALLINT NOT NULL,
-  age_rating VARCHAR(16),
-  rating_imdb NUMERIC(3, 1),
-  rating_tmdb NUMERIC(3, 1),
-  runtime_minutes SMALLINT,
-  overview TEXT,
-  poster_url VARCHAR(1024),
-  backdrop_url VARCHAR(1024),
-  is_4k BOOLEAN DEFAULT FALSE NOT NULL,
-  is_published BOOLEAN DEFAULT TRUE NOT NULL,
-  play_count BIGINT DEFAULT 0 NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS history (
-  id VARCHAR(64) PRIMARY KEY,
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  season_id VARCHAR(64),
-  episode_id VARCHAR(64),
-  position_seconds INTEGER NOT NULL,
-  duration_seconds INTEGER NOT NULL,
-  is_finished BOOLEAN DEFAULT FALSE NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  CONSTRAINT uq_user_history_entry UNIQUE (user_id, content_id, episode_id)
-);
-
-CREATE TABLE IF NOT EXISTS favorites (
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (user_id, content_id)
-);
-
-CREATE TABLE IF NOT EXISTS watchlist (
-  user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_id VARCHAR(64) NOT NULL REFERENCES content(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-  PRIMARY KEY (user_id, content_id)
-);
-
-CREATE TABLE IF NOT EXISTS streaming_nodes (
-  id VARCHAR(64) PRIMARY KEY,
-  hostname VARCHAR(255) NOT NULL,
-  region VARCHAR(64) NOT NULL,
-  type VARCHAR(32) DEFAULT 'torrserver' NOT NULL,
-  max_capacity INTEGER DEFAULT 50 NOT NULL,
-  active_streams INTEGER DEFAULT 0 NOT NULL,
-  bandwidth_mbps INTEGER DEFAULT 0 NOT NULL,
-  cpu_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  ram_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  disk_usage_percent INTEGER DEFAULT 0 NOT NULL,
-  is_online BOOLEAN DEFAULT TRUE NOT NULL,
-  last_heartbeat TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-
--- Дефолтный Администратор: alex_admin / admin123
-INSERT INTO users (id, email, username, password_hash, role, plan, subscription_expires_at)
-VALUES (
-  'usr-admin-01',
-  'admin@smarttv.com',
-  'alex_admin',
-  '$2a$10$wN30XNq1r3mB.YxY9QJpUO7z9Q7G0Dk4B3W3T9N2B4L5K6J7H8G9A',
-  'admin',
-  '4k',
-  NOW() + INTERVAL '365 days'
-)
-ON CONFLICT (id) DO NOTHING;
-
--- Локальный узел TorrServer
-INSERT INTO streaming_nodes (id, hostname, region, type, max_capacity, is_online)
-VALUES (
-  'node-local-01',
-  '127.0.0.1:8090',
-  'Локальный стриминговый узел (RAM Cache)',
-  'torrserver',
-  100,
-  TRUE
-)
-ON CONFLICT (id) DO NOTHING;
-EOF
-
-PGPASSWORD='StrongAlexHdPass2026!' psql -h 127.0.0.1 -U alexhd_user -d alexhd_db -f /tmp/init_schema.sql
-rm /tmp/init_schema.sql
-```
-
----
-
-### Шаг 5. Установка и автозапуск TorrServer MatriX (RAM Режим)
-
-```bash
-# 1. Создаем каталоги
-sudo mkdir -p /opt/torrserver /var/lib/torrserver/db
-
-# 2. Скачиваем бинарник TorrServer MatriX
-cd /opt/torrserver
-sudo wget https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -O torrserver || sudo curl -L https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -o torrserver
-sudo chmod +x torrserver
-
-# 3. Создаем системного пользователя
-sudo useradd -r -s /bin/false torruser || true
-sudo chown -R torruser:torruser /opt/torrserver /var/lib/torrserver
-
-# 4. Создаем службу systemd
-sudo tee /etc/systemd/system/torrserver.service > /dev/null << 'EOF'
-[Unit]
-Description=TorrServer MatriX Streaming Engine (Zero-Disk RAM)
-After=network.target network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=torruser
-Group=torruser
-WorkingDirectory=/opt/torrserver
-ExecStart=/opt/torrserver/torrserver -p 8090 -d /var/lib/torrserver/db
-Restart=always
-RestartSec=3
-LimitNOFILE=65536
-LimitNPROC=65536
-MemoryMax=3G
-MemoryHigh=2.5G
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 5. Тюнинг сетевых буферов ядра Linux для 4K HDR (BBR)
-sudo tee /etc/sysctl.d/99-torrserver.conf > /dev/null << 'EOF'
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.rmem_default = 33554432
-net.core.wmem_default = 33554432
-net.core.netdev_max_backlog = 10000
-net.core.somaxconn = 4096
-net.ipv4.tcp_rmem = 4096 87380 33554432
-net.ipv4.tcp_wmem = 4096 65536 33554432
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_tw_reuse = 1
-EOF
-
-sudo sysctl --system
-sudo systemctl daemon-reload
-sudo systemctl enable --now torrserver
-
-# Проверка:
-curl -s http://127.0.0.1:8090/echo
-# Ответ: MatriX.134 или выше
-```
-
----
-
-### Шаг 6. Развертывание Prowlarr и FlareSolverr (Поисковый шлюз)
-
-Запускаем Prowlarr с независимыми DNS-серверами Яндекса и Cloudflare (чтобы трекеры не блокировались локальным DNS провайдера VPS):
-
-```bash
-# 1. Запуск FlareSolverr (решение Cloudflare капч)
 sudo docker run -d \
-  --name=flaresolverr \
-  -p 8191:8191 \
-  -e LOG_LEVEL=info \
-  -e TZ=Europe/Moscow \
+  --name=tor-socks-proxy \
+  --network=alexhd-net \
+  -p 9050:9050 \
   --restart always \
-  ghcr.io/flaresolverr/flaresolverr:latest
+  peterdaveheller/tor-socks-proxy:latest
+```
 
-# 2. Запуск Prowlarr
-sudo mkdir -p /opt/prowlarr/config
+**Настройка в Prowlarr (`http://IP_VPS:9696`)**:
+1. Откройте **Settings &rarr; Indexers &rarr; Proxies &rarr; + (Add)**.
+2. Выберите тип **Socks5 Proxy**.
+3. Заполните параметры:
+   * **Name**: `Tor SOCKS5`
+   * **Host**: `tor-socks-proxy` (или `127.0.0.1`)
+   * **Port**: `9050`
+   * **Tags**: `proxy` (нажмите Enter)
+4. Нажмите **Test** (зеленая галочка) &rarr; **Save**.
+
+---
+
+### Вариант 0: VLESS Reality / Xray Client (Самый надежный в РФ для Prowlarr и FlareSolverr)
+
+В связи с блокировками стандартных Tor/VPN провайдерами в РФ (ТСПУ), протокол **VLESS Reality / Xray** является самым стабильным решением. Вы можете поднять локальный Xray-клиент на VPS, который поднимает локальный SOCKS5/HTTP порт (например, `10808` или `2080`), и завернуть через него запросы Prowlarr и FlareSolverr.
+
+```bash
+# 1. Быстрая установка Xray Core на VPS
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
+
+# 2. Пример конфига клиента /usr/local/etc/xray/config.json
+# (Подставьте ваши server, port, id, flow, publicKey, serverName, shortId из ключа vless://)
+sudo tee /usr/local/etc/xray/config.json > /dev/null << 'EOF'
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 10808,
+      "protocol": "socks",
+      "settings": { "auth": "noauth", "udp": true }
+    },
+    {
+      "listen": "0.0.0.0",
+      "port": 10809,
+      "protocol": "http",
+      "settings": { "allowTransparent": false }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "ВАШ_ЗАРУБЕЖНЫЙ_IP_ИЛИ_ДОМЕН",
+            "port": 443,
+            "users": [
+              {
+                "id": "ВАШ_UUID",
+                "flow": "xtls-rprx-vision",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "yahoo.com",
+          "publicKey": "ВАШ_PUBLIC_KEY",
+          "shortId": "ВАШ_SHORT_ID",
+          "spiderX": ""
+        }
+      }
+    }
+  ]
+}
+EOF
+
+# 3. Запуск службы Xray
+sudo systemctl restart xray && sudo systemctl enable xray
+
+# 4. Проверка работы локального SOCKS5 прокси
+curl -s -x socks5h://127.0.0.1:10808 https://checkip.amazonaws.com
+```
+
+**Подключение VLESS SOCKS5 в Prowlarr:**
+* В **Settings &rarr; Indexers &rarr; Proxies &rarr; + (Add) &rarr; Socks5 Proxy**:
+  * **Name**: `VLESS Reality SOCKS5`
+  * **Host**: `172.17.0.1` *(шлюз Docker для доступа к хосту)* или IP вашего VPS.
+  * **Port**: `10808`
+  * **Tags**: `proxy` (нажмите Enter) &rarr; **Save**.
+
+---
+
+### Вариант 2: Поднятие собственного SOCKS5 прокси (Dante Server)
+
+Если у вас есть отдельный недорогой зарубежный VPS (Германия / Нидерланды / Финляндия), вы можете за 1 минуту поднять там свой собственный SOCKS5 сервер:
+
+```bash
+# Установка Dante
+sudo apt update && sudo apt install -y danted
+
+# Создание конфигурации Dante
+sudo tee /etc/danted.conf > /dev/null << 'EOF'
+logoutput: /var/log/danted.log
+internal: 0.0.0.0 port = 1080
+external: eth0
+
+socksmethod: username
+clientmethod: none
+
+client pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    log: error
+}
+
+socks pass {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+    command: bind connect udpassociate
+    log: error
+    socksmethod: username
+}
+EOF
+
+# Создание пользователя для прокси
+sudo useradd -r -s /bin/false proxyuser
+echo "proxyuser:StrongProxyPass2026!" | sudo chpasswd
+
+# Перезапуск службы Dante
+sudo systemctl restart danted && sudo systemctl enable danted
+```
+
+**Подключение в Prowlarr**:
+* **Host**: `IP_ВАШЕГО_ЗАРУБЕЖНОГО_VPS`
+* **Port**: `1080`
+* **Username**: `proxyuser`
+* **Password**: `StrongProxyPass2026!`
+* **Tags**: `proxy`
+
+---
+
+### Вариант 3: Поднятие 3proxy (Универсальный HTTP + SOCKS5)
+
+```bash
+# Установка 3proxy
+sudo apt update && sudo apt install -y 3proxy
+
+# Конфигурация 3proxy с авторизацией
+sudo tee /etc/3proxy/3proxy.cfg > /dev/null << 'EOF'
+daemon
+maxconn 200
+nserver 1.1.1.1
+nserver 8.8.8.8
+nscache 65536
+timeouts 1 5 30 60 180 1800 15 60
+
+users proxyuser:CL:StrongProxyPass2026!
+auth strong
+
+# HTTP прокси на порту 3128
+proxy -p3128
+
+# SOCKS5 прокси на порту 1080
+socks -p1080
+EOF
+
+sudo systemctl restart 3proxy && sudo systemctl enable 3proxy
+```
+
+---
+
+### 🎯 Как привязать прокси ТОЛЬКО к заблокированным трекерам (Tag-based Routing)
+
+Чтобы поиск по открытым российским трекерам (например, Rutor) работал **мгновенно без задержек прокси**, а через прокси шли только заблокированные:
+
+1. В настройках прокси в Prowlarr в поле **Tags** укажите тег: `proxy`.
+2. В настройках трекера **RuTracker.org**:
+   * В поле **Tags** введите `proxy` и нажмите Enter.
+   * В поле **Base Url** укажите `https://rutracker.org/` или `https://rutracker.net/`.
+3. В настройках трекера **NNM-Club**:
+   * В поле **Tags** введите `proxy` и нажмите Enter.
+4. В настройках трекера **Rutor**:
+   * Поле **Tags** оставьте **пустым** (запросы пойдут напрямую на максимальной скорости).
+
+---
+
+## 🎬 ИНТЕГРАЦИЯ С МЕДИА-ПРИЛОЖЕНИЯМИ ДЛЯ ФИЛЬМОВ И СЕРИАЛОВ (JELLYSEERR / OVERSEERR, RADARR, SONARR)
+
+Prowlarr спроектирован как центральный диспетчер трекеров (Indexer Manager) для всей экосистемы медиа-сервисов. Вы можете подключить популярные приложения для каталогизации и поиска фильмов и сериалов:
+
+### 1. Jellyseerr / Overseerr (Каталог и сервис запроса контента)
+
+**Jellyseerr / Overseerr** — это веб-витрина контента с постерами, трейлерами и описаниями из TMDB, позволяющая пользователям находить и запрашивать фильмы и сериалы.
+
+Запуск Jellyseerr в Docker в единой сети `alexhd-net`:
+```bash
+sudo mkdir -p /opt/jellyseerr/config
+sudo chmod -R 777 /opt/jellyseerr/config
+
 sudo docker run -d \
-  --name=prowlarr \
-  -p 9696:9696 \
-  --dns 77.88.8.8 \
-  --dns 1.1.1.1 \
+  --name=jellyseerr \
+  --network=alexhd-net \
+  -p 5055:5055 \
+  -e LOG_LEVEL=debug \
+  -e TZ=Europe/Moscow \
+  -v /opt/jellyseerr/config:/app/config \
+  --restart always \
+  fallenbagel/jellyseerr:latest
+```
+*Панель управления доступна по адресу:* **`http://IP_ВАШЕГО_VPS:5055`**
+
+---
+
+### 2. Radarr (Автоматический поиск и организация фильмов) & Sonarr (Сериалы)
+
+Prowlarr синхронизирует все ваши трекеры (Rutor, RuTracker, NNM-Club) напрямую в Radarr и Sonarr:
+
+```bash
+# Папки для конфигураций
+sudo mkdir -p /opt/radarr/config /opt/sonarr/config
+sudo chmod -R 777 /opt/radarr/config /opt/sonarr/config
+
+# Запуск Radarr (Фильмы)
+sudo docker run -d \
+  --name=radarr \
+  --network=alexhd-net \
+  -p 7878:7878 \
   -e PUID=1000 \
   -e PGID=1000 \
   -e TZ=Europe/Moscow \
-  -v /opt/prowlarr/config:/config \
+  -v /opt/radarr/config:/config \
   --restart always \
-  lscr.io/linuxserver/prowlarr:latest
-```
+  lscr.io/linuxserver/radarr:latest
 
-* Откройте веб-панель Prowlarr: `http://IP_ВАШЕГО_VPS:9696`.
-* Перейдите в **Settings &rarr; General** и скопируйте **API Key** (он понадобится для интеграции).
+# Запуск Sonarr (Сериалы)
+sudo docker run -d \
+  --name=sonarr \
+  --network=alexhd-net \
+  -p 8989:8989 \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=Europe/Moscow \
+  -v /opt/sonarr/config:/config \
+  --restart always \
+  lscr.io/linuxserver/sonarr:latest
+```
 
 ---
 
-### Шаг 7. Сборка и запуск Alex HD Core Backend (PM2)
+### 3. Автоматическая синхронизация трекеров из Prowlarr в Radarr и Sonarr
+
+1. В веб-интерфейсе **Radarr** (`http://IP_VPS:7878`):
+   * Перейдите в **Settings &rarr; General** &rarr; скопируйте **API Key**.
+2. В веб-интерфейсе **Sonarr** (`http://IP_VPS:8989`):
+   * Перейдите в **Settings &rarr; General** &rarr; скопируйте **API Key**.
+3. В веб-интерфейсе **Prowlarr** (`http://IP_VPS:9696`):
+   * Перейдите в **Settings &rarr; Applications &rarr; + (Add)**.
+   * Выберите **Radarr**:
+     * **Prowlarr Server**: `http://prowlarr:9696`
+     * **Radarr Server**: `http://radarr:7878`
+     * **API Key**: вставьте ключ Radarr.
+     * Нажмите **Test** &rarr; **Save**.
+   * Выберите **Sonarr**:
+     * **Prowlarr Server**: `http://prowlarr:9696`
+     * **Sonarr Server**: `http://sonarr:8989`
+     * **API Key**: вставьте ключ Sonarr.
+     * Нажмите **Test** &rarr; **Save**.
+
+---
+
+### 4. Пошаговая настройка Jellyseerr / Overseerr (Каталог новинок)
+
+После запуска контейнера откройте **`http://IP_ВАШЕГО_VPS:5055`**:
+
+1. **Первичный мастер настройки (Welcome Wizard)**:
+   * Выберите режим авторизации (Jellyfin / Plex или локальный аккаунт администратора).
+   * Задайте Email и пароль администратора.
+2. **Настройка региона и языка TMDB**:
+   * Перейдите в **Settings &rarr; General**.
+   * **Display Language**: `Русский (ru)`.
+   * **Discover Region**: `Россия (RU)`.
+   * **Original Language**: оставьте пустым или выберите `Русский, Английский`.
+3. **Подключение Radarr (Фильмы)**:
+   * Перейдите в **Settings &rarr; Services &rarr; Radarr &rarr; Add Radarr Server**.
+   * **Server Name**: `Radarr Core`
+   * **Hostname or IP**: `radarr` (или `127.0.0.1`, если вне Docker).
+   * **Port**: `7878`
+   * **API Key**: вставьте API-ключ Radarr.
+   * Нажмите **Test** &rarr; выберите **Root Folder** (папка для фильмов) и **Quality Profile** (`HD-1080p` или `Ultra-HD / 4K`) &rarr; **Save**.
+4. **Подключение Sonarr (Сериалы)**:
+   * Перейдите в **Settings &rarr; Services &rarr; Sonarr &rarr; Add Sonarr Server**.
+   * **Server Name**: `Sonarr Core`
+   * **Hostname or IP**: `sonarr`
+   * **Port**: `8989`
+   * **API Key**: вставьте API-ключ Sonarr.
+   * Нажмите **Test** &rarr; выберите **Root Folder** и **Quality Profile** &rarr; **Save**.
+5. **Настройка прав пользователей (Auto-Approve)**:
+   * В **Settings &rarr; Users** настройте права: включите `Auto-Approve Movies` и `Auto-Approve Series`, чтобы запросы пользователей отправлялись в поиск моментально без ручного одобрения.
+
+---
+
+### 5. Пошаговая настройка Radarr и Sonarr под русскую озвучку и 4K HDR
+
+1. **Профили качества (Quality Profiles)**:
+   * В Radarr перейдите в **Settings &rarr; Profiles &rarr; Quality Profiles**.
+   * Нажмите **+ (Add)** &rarr; Назовите `4K & 1080p Ultra`.
+   * Отметьте качества: `Remux-2160p`, `WEBDL-2160p`, `Remux-1080p`, `WEBDL-1080p`.
+2. **Языковой профиль (Custom Formats для русской дорожки)**:
+   * В **Settings &rarr; Custom Formats** можно импортировать готовые правила TRaSH Guides для приоритета русской озвучки (`DUB`, `LostFilm`, `HDRezka`, `Кубик в Кубе`, `Пифагор`).
+3. **Загрузка и стриминг**:
+   * Для моментального просмотра вы можете стримить раздачи через встроенный плеер Alex HD и TorrServer, либо настроить qBittorrent в **Settings &rarr; Download Clients** для фонового сохранения.
+
+---
+
+## 🌐 РАЗВЕРТЫВАНИЕ САЙТА-КАТАЛОГА ALEX HD НА СВОЕМ VPS ОТ А ДО Я
+
+Alex HD — это полноценный веб-сайт онлайн-кинотеатра, который включает в себя:
+* 🍿 Красивый современный каталог новинок TMDB на русском языке с трейлерами, актерским составом и похожими фильмами.
+* ⚡️ Встроенный поиск раздач в 1 клик по всем трекерам (RuTracker, Rutor, NNM-Club) через Prowlarr/Torznab.
+* 🚀 Встроенный веб-плеер с переключением аудиодорожек, субтитров и стримингом в RAM без записи на диск через TorrServer.
+* 📺 Поддержку Smart TV через приложение Media Station X (MSX).
+* 👑 Панель администратора с управлением пользователями, устройствами и системными службами.
+
+### Пошаговый запуск сайта Alex HD:
 
 ```bash
+# 1. Создаем рабочую директорию
 sudo mkdir -p /var/www/alexhd
 sudo chown -R $USER:$USER /var/www/alexhd
 cd /var/www/alexhd
 
-# Клонируем проект или переносим файлы
-git clone ВАШ_URL_РЕПОЗИТОРИЯ .
+# 2. Клонируем исходный код проекта
+git clone https://github.com/Zakkkie/Alex-HD.git .
 
-npm install
-npm run build
-
-# Создаем файл .env
+# 3. Создаем боевой конфигурационный файл .env
 cat << 'EOF' > /var/www/alexhd/.env
 PORT=3000
 NODE_ENV=production
@@ -1162,10 +832,15 @@ MAX_DEVICES_PER_USER=3
 TORRSERVER_URL=http://127.0.0.1:8090
 PROWLARR_URL=http://127.0.0.1:9696
 PROWLARR_API_KEY=ВАШ_API_КЛЮЧ_ИЗ_PROWLARR
-TMDB_API_KEY=
+TMDB_API_KEY=8ad0507b40ebd45a065a73530395afd1
 EOF
 
-# Конфигурация PM2
+# 4. Устанавливаем зависимости и компилируем проект
+npm install
+npm run build
+
+# 5. Настраиваем процесс-менеджер PM2 для автозапуска при перезагрузке VPS
+mkdir -p /var/www/alexhd/logs
 cat << 'EOF' > /var/www/alexhd/ecosystem.config.cjs
 module.exports = {
   apps: [
@@ -1182,249 +857,36 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 3000
       },
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
       error_file: '/var/www/alexhd/logs/pm2-error.log',
-      out_file: '/var/www/alexhd/logs/pm2-out.log',
-      merge_logs: true
+      out_file: '/var/www/alexhd/logs/pm2-out.log'
     }
   ]
 };
 EOF
 
-mkdir -p /var/www/alexhd/logs
-pm2 start ecosystem.config.cjs
+pm2 start /var/www/alexhd/ecosystem.config.cjs
 pm2 save
-pm2 startup
+pm2 startup | tail -n 1 | bash 2>/dev/null || true
 ```
 
 ---
 
-### Шаг 8. Настройка Брандмауэра UFW (Открытие портов)
+### Настройка Nginx с поддержкой собственного домена и SSL (HTTPS):
 
 ```bash
-sudo ufw allow 22/tcp comment 'SSH'
-sudo ufw allow 3000/tcp comment 'Alex HD Core API'
-sudo ufw allow 8090/tcp comment 'TorrServer MatriX'
-sudo ufw allow 9696/tcp comment 'Prowlarr Web/API'
-sudo ufw allow 35432/tcp comment 'TorrServer DHT TCP'
-sudo ufw allow 35432/udp comment 'TorrServer DHT UDP'
-sudo ufw allow 51413/tcp comment 'TorrServer Peer Wire TCP'
-sudo ufw allow 51413/udp comment 'TorrServer Peer Wire UDP'
-sudo ufw --force enable
-sudo ufw status
-```
+# 1. Установка Certbot для бесплатного авто-обновляемого SSL-сертификата Let's Encrypt
+sudo apt install -y certbot python3-certbot-nginx
 
----
-
-### Шаг 9. Развертывание фронтенда на Vercel (`alex-hd.vercel.app`)
-
-1. Авторизуйтесь на **[vercel.com](https://vercel.com/)** через GitHub.
-2. Нажмите **"Add New..."** &rarr; **"Project"** &rarr; импортируйте репозиторий **Alex HD**.
-3. Укажите параметры сборки:
-   - Framework: **Vite**
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-4. В разделе **Environment Variables** добавьте переменные:
-   - `VITE_API_URL` = `http://IP_ВАШЕГО_VPS:3000`
-   - `VITE_TORRSERVER_URL` = `http://IP_ВАШЕГО_VPS:8090`
-5. Нажмите **Deploy**.
-
----
-
-### Шаг 10. Подключение Smart TV (Media Station X / MSX)
-
-1. Установите **Media Station X** из каталога приложений телевизора (Samsung Tizen, LG webOS, Android TV, Apple TV).
-2. Зайдите в **Settings &rarr; Start Parameter &rarr; Setup**.
-3. Введите адрес: `https://alex-hd.vercel.app/msx.json` и нажмите **Confirm**.
-4. Интерфейс запустится на весь экран и полностью управляется стандартным пультом ТВ.
-
----
-
-# РАЗДЕЛ 2. Защита VPS: Fail2ban, SSH-ключи и Hardening
-
-Для защиты вашего сервера от сканеров, ботнетов и попыток взлома настройте комплексную защиту:
-
-### 1. Установка и настройка Fail2ban
-
-Создайте конфигурационный файл `/etc/fail2ban/jail.local`:
-
-```bash
-sudo bash -c 'cat > /etc/fail2ban/jail.local << "EOF"
-[DEFAULT]
-bantime = 24h
-findtime = 10m
-maxretry = 3
-banaction = ufw
-ignoreip = 127.0.0.1/8 ::1
-
-[sshd]
-enabled = true
-port = ssh
-logpath = %(sshd_log)s
-backend = %(sshd_backend)s
-
-[nginx-http-auth]
-enabled = true
-port = http,https
-
-[nginx-botsearch]
-enabled = true
-port = http,https
-maxretry = 2
-EOF'
-
-sudo systemctl restart fail2ban
-sudo systemctl enable fail2ban
-```
-
-**Команды управления Fail2ban:**
-* Проверить заблокированные IP: `sudo fail2ban-client status sshd`
-* Разблокировать IP: `sudo fail2ban-client set sshd unbanip 1.2.3.4`
-
-### 2. SSH Hardening (Вход строго по ключам, отключение паролей)
-
-1. **Сначала скопируйте ваш публичный ключ на VPS с домашнего компьютера:**
-   ```bash
-   ssh-copy-id root@IP_ВАШЕГО_VPS
-   ```
-2. **Проверьте, что вход по ключу работает без пароля.**
-3. **Отключите аутентификацию по паролю на VPS:**
-   ```bash
-   sudo bash -c 'echo "PasswordAuthentication no" >> /etc/ssh/sshd_config.d/99-disable-passwords.conf'
-   sudo bash -c 'echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config.d/99-disable-passwords.conf'
-   sudo systemctl restart ssh || sudo systemctl restart sshd
-   ```
-
-### 3. Защита от брутфорса на уровне ядра (UFW Rate Limit)
-
-```bash
-sudo ufw limit 22/tcp comment 'Anti-brute force rate limit'
-```
-
----
-
-# РАЗДЕЛ 3. Prowlarr: Трекеры, Индексаторы и FlareSolverr
-
-### Почему TMDB + Prowlarr вместо IMDb:
-* **TMDB API** — обеспечивает быструю и красивую витрину (постеры, актеры, русские/английские названия, трейлеры, описания).
-* **Prowlarr** — поисковый шлюз, опрашивающий реальные торрент-трекеры в реальном времени.
-
-### Рекомендуемый список трекеров для добавления в Prowlarr:
-1. **RuTracker.org** *(требуется аккаунт)* — самый полный каталог дубляжей, редких фильмов и коллекций.
-2. **Rutor (rutor.info)** *(без регистрации)* — открытый трекер со всеми свежими новинками кинопроката.
-3. **Kinozal.tv** *(требуется аккаунт)* — премиальные студийные озвучки (Red Head Sound, Flarrow Films, HDRezka).
-4. **NNM-Club** *(без регистрации)* — лучшие 4K HDR / Dolby Vision Remux релизы с многоканальным звуком.
-5. **LostFilm.tv** *(требуется аккаунт)* — зарубежные сериалы в топовом дубляже.
-6. **1337x / TorrentGalaxy** *(без регистрации)* — оригиналы на английском языке с Dolby Atmos.
-
-### Подключение FlareSolverr в Prowlarr (Обход Cloudflare):
-1. В веб-панели Prowlarr (`http://IP_VPS:9696`) перейдите в **Settings &rarr; Indexers**.
-2. В секции **Proxies** нажмите **+ (Add Proxy)** и выберите **FlareSolverr**.
-3. В поле **Host** укажите: `http://127.0.0.1:8191`.
-4. Нажмите **Test** &rarr; **Save**. Теперь проверки Cloudflare и капчи трекеров решаются автоматически в фоне.
-
----
-
-# РАЗДЕЛ 4. Домен, DDNS и Прямой доступ по IP
-
-### Вариант А. Доступ напрямую по IP БЕЗ домена:
-Вам не требуется покупать домен. Вы можете открывать сервисы напрямую:
-* Сайт и Плеер: `http://IP_VPS:3000`
-* Стриминг TorrServer: `http://IP_VPS:8090`
-* Поиск Prowlarr: `http://IP_VPS:9696`
-
-Чтобы убрать порт `:3000` и открывать сайт просто как `http://IP_VPS/`, проксируйте трафик через стандартный 80-й порт в `/etc/nginx/sites-available/default`:
-```nginx
-server {
-    listen 80 default_server;
-    server_name _;
-
-    location /torrserver/ {
-        proxy_pass http://127.0.0.1:8090/;
-        proxy_buffering off;
-    }
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### Вариант Б. Бесплатный динамический домен через DuckDNS + Бесплатный SSL:
-1. Зарегистрируйтесь на **[duckdns.org](https://www.duckdns.org)** и создайте субдомен (например, `alex-cinema.duckdns.org`).
-2. Настройте автообновление IP в Cron:
-   ```bash
-   mkdir -p ~/duckdns
-   cat > ~/duckdns/duck.sh << 'EOF'
-   echo url="https://www.duckdns.org/update?domains=ВАШ_ДОМЕН&token=ВАШ_ТОКЕН&ip=" | curl -k -o ~/duckdns/duck.log -K -
-   EOF
-   chmod 700 ~/duckdns/duck.sh
-   (crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
-   ```
-3. Выпустите бесплатный сертификат Let's Encrypt:
-   ```bash
-   sudo certbot --nginx -d ВАШ_ДОМЕН.duckdns.org
-   ```
-
-### Вариант В. Собственный домен + Cloudflare:
-1. Добавьте в DNS Cloudflare две A-записи, указывающие на IP вашего VPS:
-   * `@` &rarr; `IP_ВАШЕГО_VPS` (Proxy Status: **Proxied / Оранжевое облако**)
-   * `tv` &rarr; `IP_ВАШЕГО_VPS` (Proxy Status: **Proxied / Оранжевое облако**)
-2. В панели Cloudflare включите режим SSL: **Full / Strict**.
-3. Ваш реальный IP сервера будет скрыт от DDoS-атак, а трафик и постеры будут кэшироваться через глобальный CDN.
-
----
-
-# РАЗДЕЛ 5. Вариант 2: All-in-One VPS с собственным доменом и Nginx + SSL
-
-Конфигурация `/etc/nginx/sites-available/alexhd.conf`:
-
-```nginx
-proxy_cache_path /var/cache/nginx/alexhd_posters
-    levels=1:2
-    keys_zone=posters_cache:30m
-    max_size=5g
-    inactive=14d
-    use_temp_path=off;
-
+# 2. Создание конфига Nginx (/etc/nginx/sites-available/alexhd)
+sudo tee /etc/nginx/sites-available/alexhd > /dev/null << 'EOF'
 server {
     listen 80;
-    server_name tv.yourdomain.com;
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
+    server_name _; # Замените на ваш домен, например: cinema.yourdomain.com
 
-server {
-    listen 443 ssl http2;
-    server_name tv.yourdomain.com;
+    client_max_body_size 100M;
 
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    add_header 'Access-Control-Allow-Origin' '*' always;
-    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-    add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,X-Device-Id' always;
-    add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range,Accept-Ranges' always;
-
-    location /msx.json {
-        alias /var/www/alexhd/public/msx.json;
-        add_header Content-Type application/json;
-        add_header Access-Control-Allow-Origin *;
-    }
-
-    location /t/p/ {
-        proxy_pass https://image.tmdb.org/t/p/;
-        proxy_cache posters_cache;
-        proxy_cache_valid 200 30d;
-        expires 30d;
-    }
-
-    # Стриминг TorrServer (Обязательно без буферизации Nginx!)
+    # 1. Потоковый видеострим TorrServer (без буферизации для 4K)
     location /torrserver/ {
         proxy_pass http://127.0.0.1:8090/;
         proxy_buffering off;
@@ -1434,6 +896,22 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
+    # 2. Каталог Jellyseerr (по желанию)
+    location /seerr/ {
+        proxy_pass http://127.0.0.1:5055/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # 3. Манифест Smart TV MSX
+    location /msx.json {
+        proxy_pass http://127.0.0.1:3000/msx.json;
+        add_header Content-Type application/json;
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    # 4. Основной сайт и каталог Alex HD
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
@@ -1441,128 +919,33 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
-```
+EOF
 
-Активация и получение SSL:
-```bash
-sudo ln -sf /etc/nginx/sites-available/alexhd.conf /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo certbot --nginx -d tv.yourdomain.com --non-interactive --agree-tos -m admin@yourdomain.com
+sudo ln -sf /etc/nginx/sites-available/alexhd /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl restart nginx
+
+# 3. Выпуск бесплатного SSL-сертификата (если есть привязанный домен):
+# sudo certbot --nginx -d cinema.yourdomain.com
 ```
 
 ---
 
-# РАЗДЕЛ 6. Вариант 3: Запуск полного стека в Docker Compose
-
-Создайте файл `docker-compose.yml`:
-
-```yaml
-version: '3.8'
-
-services:
-  torrserver:
-    image: yourok/torrserver:latest
-    container_name: alexhd-torrserver
-    restart: always
-    network_mode: host
-    environment:
-      - TS_PORT=8090
-      - TS_DONTKILL=1
-    volumes:
-      - /var/lib/torrserver/db:/opt/torrserver/db
-
-  prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
-    container_name: alexhd-prowlarr
-    restart: always
-    network_mode: host
-    dns:
-      - 77.88.8.8
-      - 1.1.1.1
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Moscow
-    volumes:
-      - /opt/prowlarr/config:/config
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    container_name: alexhd-flaresolverr
-    restart: always
-    ports:
-      - "8191:8191"
-    environment:
-      - LOG_LEVEL=info
-      - TZ=Europe/Moscow
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: alexhd-postgres
-    restart: always
-    environment:
-      POSTGRES_DB: alexhd_db
-      POSTGRES_USER: alexhd_user
-      POSTGRES_PASSWORD: StrongAlexHdPass2026!
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - /var/lib/postgresql/data:/var/lib/postgresql/data
-```
-
-Запуск:
+### ❓ Просмотр логов в реальном времени:
 ```bash
-docker compose up -d
+# Логи приложения Alex HD
+pm2 logs alexhd-core
+
+# Логи стриминга TorrServer
+sudo journalctl -u torrserver -f
+
+# Логи обхода капч FlareSolverr
+sudo docker logs -f flaresolverr
+
+# Логи поиска Prowlarr
+sudo docker logs -f prowlarr
 ```
 
----
-
-# РАЗДЕЛ 7. Вариант 4: Легковесный режим (Только TorrServer)
-
-```bash
-sudo mkdir -p /opt/torrserver /var/lib/torrserver/db
-cd /opt/torrserver
-sudo wget https://github.com/YouROK/TorrServer/releases/latest/download/TorrServer-linux-amd64 -O torrserver
-sudo chmod +x torrserver
-sudo nohup /opt/torrserver/torrserver -p 8090 -d /var/lib/torrserver/db > /var/log/torrserver.log 2>&1 &
-sudo ufw allow 8090/tcp
-```
-
----
-
-# РАЗДЕЛ 8. Чек-лист проверки и Решение типовых проблем (Troubleshooting)
-
-### Чек-лист проверки готовности системы:
-
-| Компонент | Команда проверки | Ожидаемый результат |
-|---|---|---|
-| **TorrServer** | `curl -s http://127.0.0.1:8090/echo` | `MatriX.134` (или выше) |
-| **Prowlarr** | `curl -s http://127.0.0.1:9696/ping` | `{"status":"OK"}` |
-| **FlareSolverr** | `curl -s http://127.0.0.1:8191/` | `{"msg":"FlareSolverr is ready!"}` |
-| **PostgreSQL** | `pg_isready -h 127.0.0.1 -p 5432` | `accepting connections` |
-| **Core API** | `curl -s http://127.0.0.1:3000/api/v1/health` | `{"status":"ok","database":"connected"}` |
-| **PM2 статус** | `pm2 status` | Сервис `alexhd-core` в статусе `online` |
-| **Fail2ban** | `sudo fail2ban-client status sshd` | Статус службы и список заблокированных IP |
-
----
-
-### Решение типовых проблем:
-
-1. **Ошибка Mixed Content в браузере на ПК**:
-   * *Причина*: Фронтенд на Vercel открыт по `https://`, а TorrServer отдает видео по `http://IP:8090`. Браузеры блокируют HTTP-видео внутри HTTPS.
-   * *Решение*:
-     1. На Smart TV (через Media Station X / MSX) этой проблемы **нет**, видео играет напрямую.
-     2. На ПК в Chrome/Edge нажмите на иконку «Настройки сайта» слева от адресной строки и установите пункт **«Небезопасный контент» (Insecure content)** в значение **«Разрешить» (Allow)**.
-     3. Или используйте проксирование через Nginx с SSL (Вариант 2 / Раздел 5).
-2. **0 пиров / Скорость 0 KB/s**:
-   * *Причина*: Закрыты P2P-порты в фаерволе.
-   * *Решение*: Выполните `sudo ufw allow 35432/tcp && sudo ufw allow 35432/udp && sudo ufw allow 51413/tcp && sudo ufw allow 51413/udp`.
-3. **Видео зависает каждые 5–10 секунд**:
-   * *Причина*: В Nginx включена буферизация 4K потока.
-   * *Решение*: В блоке `location /torrserver/` конфигурации Nginx обязательно укажите `proxy_buffering off;`.
-4. **Prowlarr не находит торренты на RuTracker/Rutor**:
-   * *Причина*: Локальный DNS хостинга блокирует домены трекеров или срабатывает Cloudflare защита.
-   * *Решение*: Запускайте Prowlarr с DNS `77.88.8.8` и подключите FlareSolverr прокси в настройках Prowlarr.
+🎉 **Поздравляем! Ваш собственный онлайн-кинотеатр Alex HD готов к бесконечному просмотру фильмов и сериалов в максимальном качестве!**

@@ -1,6 +1,7 @@
 import { dbStore } from '../../db/store';
 import { HomePayload, ContentItem, Collection, WatchHistoryItem, Season, Episode } from '../../../../src/types';
 import { TMDBClient, MetadataService } from '../metadata/metadataService';
+import { JellyseerrService } from '../metadata/jellyseerrService';
 
 export class CatalogService {
   static getHomePayload(userId: string): HomePayload {
@@ -142,7 +143,7 @@ export class CatalogService {
   static async getContentDetail(id: string, userId?: string) {
     let item = dbStore.content.find(c => c.id === id || (c.tmdb_id && String(c.tmdb_id) === String(id)));
 
-    // If not found in memory, try fetching directly from TMDB
+    // If not found in memory, try fetching directly from Jellyseerr or TMDB
     if (!item) {
       try {
         let tmdbId: number | null = null;
@@ -160,12 +161,28 @@ export class CatalogService {
         }
 
         if (tmdbId) {
-          if (type === 'movie') {
-            const raw = await TMDBClient.getMovieDetails(tmdbId);
-            item = TMDBClient.convertToContentItem(raw, 'movie');
-          } else {
-            const raw = await TMDBClient.getTVDetails(tmdbId);
-            item = TMDBClient.convertToContentItem(raw, 'series');
+          // First attempt to fetch from Jellyseerr if enabled
+          if (JellyseerrService.isEnabled()) {
+            try {
+              if (type === 'movie') {
+                item = await JellyseerrService.getMovieDetails(tmdbId);
+              } else {
+                item = await JellyseerrService.getTVDetails(tmdbId);
+              }
+            } catch (seerrErr) {
+              console.warn(`Jellyseerr lookup failed for ${tmdbId}, falling back to TMDB:`, seerrErr);
+            }
+          }
+
+          // Fallback to TMDB directly if Jellyseerr didn't return item
+          if (!item) {
+            if (type === 'movie') {
+              const raw = await TMDBClient.getMovieDetails(tmdbId);
+              item = TMDBClient.convertToContentItem(raw, 'movie');
+            } else {
+              const raw = await TMDBClient.getTVDetails(tmdbId);
+              item = TMDBClient.convertToContentItem(raw, 'series');
+            }
           }
 
           if (item) {
@@ -173,41 +190,41 @@ export class CatalogService {
           }
         }
       } catch (err) {
-        console.warn(`Could not dynamically fetch TMDB item ${id}:`, err);
+        console.warn(`Could not dynamically fetch item ${id}:`, err);
       }
     }
 
     if (!item) return null;
 
-    // Check if we need on-demand lazy enrichment of cast/crew/stills details from TMDB
+    // Check if we need on-demand lazy enrichment of cast/crew/stills details from Jellyseerr or TMDB
     const needsDetailHydration = item.tmdb_id && (!item.cast_members || item.cast_members.length === 0 || !item.stills || item.stills.length === 0);
     if (needsDetailHydration) {
       try {
-        if (item.type === 'movie') {
-          const raw = await TMDBClient.getMovieDetails(item.tmdb_id);
-          const enriched = TMDBClient.convertToContentItem(raw, 'movie');
-          const idx = dbStore.content.findIndex(c => c.id === item!.id);
-          if (idx >= 0) {
-            dbStore.content[idx] = {
-              ...dbStore.content[idx],
-              ...enriched,
-              genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
-              overview: enriched.overview || dbStore.content[idx].overview,
-              director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
-              directorPhoto: enriched.directorPhoto || dbStore.content[idx].directorPhoto,
-              directorId: enriched.directorId || dbStore.content[idx].directorId,
-              cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
-              cast_members: enriched.cast_members,
-              crew_members: enriched.crew_members,
-              stills: enriched.stills || dbStore.content[idx].stills,
-              trailer_url: enriched.trailer_url || dbStore.content[idx].trailer_url,
-              similar: enriched.similar || dbStore.content[idx].similar
-            };
-            item = dbStore.content[idx];
+        let enriched: ContentItem | null = null;
+
+        // Try Jellyseerr first
+        if (JellyseerrService.isEnabled()) {
+          try {
+            enriched = item.type === 'movie'
+              ? await JellyseerrService.getMovieDetails(item.tmdb_id)
+              : await JellyseerrService.getTVDetails(item.tmdb_id);
+          } catch (seerrHydrateErr) {
+            // fallback
           }
-        } else {
-          const raw = await TMDBClient.getTVDetails(item.tmdb_id);
-          const enriched = TMDBClient.convertToContentItem(raw, 'series');
+        }
+
+        // Fallback to TMDB
+        if (!enriched) {
+          if (item.type === 'movie') {
+            const raw = await TMDBClient.getMovieDetails(item.tmdb_id);
+            enriched = TMDBClient.convertToContentItem(raw, 'movie');
+          } else {
+            const raw = await TMDBClient.getTVDetails(item.tmdb_id);
+            enriched = TMDBClient.convertToContentItem(raw, 'series');
+          }
+        }
+
+        if (enriched) {
           const idx = dbStore.content.findIndex(c => c.id === item!.id);
           if (idx >= 0) {
             dbStore.content[idx] = {
@@ -215,7 +232,7 @@ export class CatalogService {
               ...enriched,
               genres: enriched.genres && enriched.genres.length > 0 ? enriched.genres : dbStore.content[idx].genres,
               overview: enriched.overview || dbStore.content[idx].overview,
-              director: enriched.director !== 'Неизвестно' ? enriched.director : dbStore.content[idx].director,
+              director: (enriched.director && enriched.director !== 'Неизвестно') ? enriched.director : dbStore.content[idx].director,
               directorPhoto: enriched.directorPhoto || dbStore.content[idx].directorPhoto,
               directorId: enriched.directorId || dbStore.content[idx].directorId,
               cast: enriched.cast && enriched.cast.length > 0 ? enriched.cast : dbStore.content[idx].cast,
@@ -229,7 +246,7 @@ export class CatalogService {
           }
         }
       } catch (err) {
-        console.warn('Lazy TMDB credits hydration skipped:', err);
+        console.warn('Lazy credits hydration skipped:', err);
       }
     }
 
