@@ -53,18 +53,22 @@ export class TMDBClient {
   }
 
   private static get baseUrl(): string {
-    return 'https://api.themoviedb.org/3';
+    return process.env.TMDB_API_URL || process.env.TMDB_BASE_URL || 'https://api.themoviedb.org/3';
   }
 
   private static get imageBaseUrl(): string {
-    return 'https://image.tmdb.org/t/p';
+    return process.env.TMDB_IMAGE_BASE_URL || 'https://image.tmdb.org/t/p';
   }
 
   public static getImageUrl(path: string | null, size: 'w500' | 'w780' | 'original' = 'w500'): string {
     if (!path) {
       return 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=600&auto=format&fit=crop&q=80';
     }
-    return `${this.imageBaseUrl}/${size}${path}`;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return `/api/v1/image-proxy?url=${encodeURIComponent(path)}`;
+    }
+    const fullUrl = `${this.imageBaseUrl}/${size}${path.startsWith('/') ? path : `/${path}`}`;
+    return `/api/v1/image-proxy?url=${encodeURIComponent(fullUrl)}`;
   }
 
   public static async fetchTMDB(endpoint: string, params: Record<string, string> = {}) {

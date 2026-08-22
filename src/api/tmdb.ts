@@ -164,10 +164,17 @@ export function getTMDBImageUrl(
   if (!path) {
     return 'https://images.unsplash.com/photo-1594909122845-11baa439b7bf?w=600&auto=format&fit=crop&q=80';
   }
-  if (path.startsWith('http://') || path.startsWith('https://')) {
+  if (path.startsWith('/api/v1/image-proxy')) {
     return path;
   }
-  return `https://image.tmdb.org/t/p/${size}${path.startsWith('/') ? path : `/${path}`}`;
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    if (path.includes('image.tmdb.org')) {
+      return `/api/v1/image-proxy?url=${encodeURIComponent(path)}`;
+    }
+    return path;
+  }
+  const tmdbUrl = `https://image.tmdb.org/t/p/${size}${path.startsWith('/') ? path : `/${path}`}`;
+  return `/api/v1/image-proxy?url=${encodeURIComponent(tmdbUrl)}`;
 }
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';

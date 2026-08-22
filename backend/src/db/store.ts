@@ -11,8 +11,8 @@ import {
 } from '../../../src/types';
 import { fallbackContent } from '../../../src/data/fallbackCatalog';
 
-// Real content is populated dynamically via TMDB / Jellyseerr / Prowlarr integration
-export const initialContent: ContentItem[] = [];
+// Seed initial curated catalog to ensure instant offline & local availability
+export const initialContent: ContentItem[] = [...fallbackContent];
 export const initialSeasons: Season[] = [];
 export const initialEpisodes: Episode[] = [];
 export const initialCollections: Collection[] = [];

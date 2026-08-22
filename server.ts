@@ -17,8 +17,12 @@ import { AIService } from './backend/src/modules/ai/aiService.js';
 import { dbStore } from './backend/src/db/store.js';
 import { config } from './backend/src/config/env.js';
 import { fileLogger } from './backend/src/logger/fileLogger.js';
+import { initProxySupport } from './backend/src/utils/proxyAgent.js';
 
 async function startServer() {
+  // Initialize global proxy support if configured (HTTP_PROXY / HTTPS_PROXY / ALL_PROXY)
+  initProxySupport();
+
   const app = express();
   const PORT = 3000;
 
@@ -871,12 +875,187 @@ async function startServer() {
     }
   });
 
-  // ------------------- EDGE STREAMING SIMULATOR ROUTE -------------------
-  // Serves a sample mp4 / test video stream chunk for live playback testing inside the player
-  app.get('/stream/play/:sessionId', (req, res) => {
-    // Open Big Buck Bunny / Sintel / Tears of Steel sample open-source stream
-    const sampleVideoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-    res.redirect(302, sampleVideoUrl);
+  // ------------------- RESILIENT IMAGE PROXY ROUTE -------------------
+  // Bypasses regional ISP blocks (such as image.tmdb.org in Russia) and caches posters
+  app.get('/api/v1/image-proxy', async (req, res) => {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) {
+      return res.status(400).send('Missing url param');
+    }
+
+    try {
+      const targetUrl = decodeURIComponent(rawUrl);
+      if (!/^https?:\/\//i.test(targetUrl)) {
+        return res.status(400).send('Invalid url protocol');
+      }
+
+      const imgRes = await fetch(targetUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        },
+        signal: AbortSignal.timeout(6000),
+      }).catch(() => null);
+
+      if (imgRes && imgRes.ok) {
+        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        const arrayBuffer = await imgRes.arrayBuffer();
+        return res.send(Buffer.from(arrayBuffer));
+      }
+    } catch (err) {
+      // Fallback below
+    }
+
+    // Fallback: Return clean SVG poster placeholder
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="750" viewBox="0 0 500 750" fill="none">
+      <rect width="500" height="750" fill="#141416"/>
+      <rect x="20" y="20" width="460" height="710" rx="16" fill="#1b1c20" stroke="#2d3039" stroke-width="2"/>
+      <circle cx="250" cy="320" r="54" fill="#262833"/>
+      <path d="M240 300L270 320L240 340V300Z" fill="#e50914"/>
+      <text x="250" y="420" text-anchor="middle" fill="#9ba1b0" font-family="system-ui, sans-serif" font-size="20" font-weight="600">SMART TV CINEMA</text>
+      <text x="250" y="450" text-anchor="middle" fill="#5c6270" font-family="system-ui, sans-serif" font-size="14">HD • 4K HDR • 5.1 SURROUND</text>
+    </svg>`;
+    return res.send(svg);
+  });
+
+  // ------------------- EDGE STREAMING & TORRSERVER PROXY ROUTE -------------------
+  // Serves HTTP range-request video stream, TorrServer proxying, or resilient CDN fallback
+  app.get(['/stream/play/:sessionId', '/api/v1/stream/play/:sessionId'], async (req, res) => {
+    const { sessionId } = req.params;
+    const session = dbStore.sessions.find(s => s.sessionId === sessionId);
+
+    // Reliable public MP4 test streams (bypasses blocked Google Storage in RU)
+    const reliableStreams = [
+      'https://raw.githubusercontent.com/mediaelement/mediaelement-files/master/big_buck_bunny.mp4',
+      'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+    ];
+
+    const range = req.headers.range;
+
+    // Check if TorrServer is active for this session
+    let directStreamUrl = reliableStreams[0];
+    if (session) {
+      const node = dbStore.nodes.find(n => n.nodeId === session.nodeId);
+      if (node && node.isOnline) {
+        directStreamUrl = `http://${node.hostname}/stream?link=${sessionId}&play=true`;
+      }
+    }
+
+    try {
+      const fetchHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (SmartTV/Edge Player)',
+        'Accept': '*/*'
+      };
+      if (range) {
+        fetchHeaders['Range'] = range;
+      }
+
+      // Try primary stream
+      let streamRes = await fetch(directStreamUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(5000)
+      }).catch(() => null);
+
+      // If primary failed, try secondary reliable stream
+      if (!streamRes || !streamRes.ok) {
+        streamRes = await fetch(reliableStreams[1], {
+          headers: fetchHeaders,
+          signal: AbortSignal.timeout(5000)
+        }).catch(() => null);
+      }
+
+      if (streamRes && (streamRes.status === 200 || streamRes.status === 206)) {
+        res.status(streamRes.status);
+        res.setHeader('Content-Type', streamRes.headers.get('content-type') || 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Range, Accept, Origin, Content-Type');
+
+        const cr = streamRes.headers.get('content-range');
+        if (cr) res.setHeader('Content-Range', cr);
+        const cl = streamRes.headers.get('content-length');
+        if (cl) res.setHeader('Content-Length', cl);
+
+        if (streamRes.body) {
+          const reader = streamRes.body.getReader();
+          const pump = async () => {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(Buffer.from(value));
+            }
+            res.end();
+          };
+          return pump().catch(() => res.end());
+        }
+      }
+    } catch (e) {
+      // Fallback
+    }
+
+    // Direct redirect fallback
+    res.redirect(302, reliableStreams[0]);
+  });
+
+  // Generic stream proxy for avoiding Mixed Content (HTTP on HTTPS sites)
+  app.get('/api/v1/stream/proxy', async (req, res) => {
+    const rawUrl = req.query.url as string;
+    if (!rawUrl) return res.status(400).send('Missing url param');
+
+    try {
+      const targetUrl = decodeURIComponent(rawUrl);
+      const range = req.headers.range;
+
+      const fetchHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (SmartTV/Edge Proxy)',
+        'Accept': '*/*'
+      };
+      if (range) {
+        fetchHeaders['Range'] = range;
+      }
+
+      const streamRes = await fetch(targetUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(10000)
+      }).catch(() => null);
+
+      if (streamRes && (streamRes.status === 200 || streamRes.status === 206)) {
+        res.status(streamRes.status);
+        res.setHeader('Content-Type', streamRes.headers.get('content-type') || 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        const cr = streamRes.headers.get('content-range');
+        if (cr) res.setHeader('Content-Range', cr);
+        const cl = streamRes.headers.get('content-length');
+        if (cl) res.setHeader('Content-Length', cl);
+
+        if (streamRes.body) {
+          const reader = streamRes.body.getReader();
+          const pump = async () => {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(Buffer.from(value));
+            }
+            res.end();
+          };
+          return pump().catch(() => res.end());
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    res.status(502).send('Streaming upstream unavailable');
   });
 
   // ------------------- ADMIN DASHBOARD & NODE TELEMETRY API -------------------

@@ -474,11 +474,16 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
       setPipelineSteps(prev => prev.map((s, idx) => (idx === 6 ? { ...s, status: 'active' } : s)));
       setConnectionProgress(98);
 
-      const targetStreamUrl =
+      let targetStreamUrl =
         session?.streamUrl ||
         stream?.stream_url ||
         content?.stream_url ||
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+        `/api/v1/stream/play/${session?.sessionId || 'default'}`;
+
+      // Automatically wrap HTTP stream URLs in proxy if viewing over HTTPS to eliminate Mixed Content block
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:' && targetStreamUrl.startsWith('http://')) {
+        targetStreamUrl = `/api/v1/stream/proxy?url=${encodeURIComponent(targetStreamUrl)}`;
+      }
 
       setActiveStreamUrl(targetStreamUrl);
 
@@ -551,7 +556,17 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
+    let hasRetriedStream = false;
+
     const handleVideoError = () => {
+      const fallbackUrl = `/api/v1/stream/play/${activeSession?.sessionId || 'default'}`;
+      if (!hasRetriedStream && activeStreamUrl !== fallbackUrl) {
+        hasRetriedStream = true;
+        addLog('DECODER', 'Основной видеоканал не ответил, переключение на резервный защищенный прокси-поток...', 'info');
+        setActiveStreamUrl(fallbackUrl);
+        return;
+      }
+
       const code = video.error?.code || 0;
       const message = video.error?.message || 'Неизвестная ошибка декодирования медиа-контента';
 
