@@ -53,8 +53,12 @@ export interface RadarrRelease {
 }
 
 export class RadarrService {
+  public static isConfigured(): boolean {
+    return Boolean(config.radarrApiKey && config.radarrUrl);
+  }
+
   private static getBaseUrl(): string {
-    return (config.radarrUrl || 'http://172.19.0.8:7878').replace(/\/+$/, '');
+    return (config.radarrUrl || 'http://127.0.0.1:7878').replace(/\/+$/, '');
   }
 
   private static getApiKey(): string {
@@ -74,6 +78,15 @@ export class RadarrService {
   }> {
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
+
+    if (!apiKey) {
+      return {
+        online: false,
+        url,
+        error: 'API-ключ Radarr не настроен'
+      };
+    }
+
     const startTime = Date.now();
 
     try {
@@ -139,6 +152,8 @@ export class RadarrService {
    * Fetches all movies from Radarr library
    */
   static async getMovies(): Promise<ContentItem[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -160,7 +175,9 @@ export class RadarrService {
 
       return movies.map(m => this.convertToContentItem(m));
     } catch (err: any) {
-      fileLogger.warn('RadarrService', 'GET_MOVIES_ERROR', `Не удалось получить фильмы из Radarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('RadarrService', 'GET_MOVIES_ERROR', `Не удалось получить фильмы из Radarr: ${err.message}`);
+      }
       return [];
     }
   }
@@ -169,6 +186,8 @@ export class RadarrService {
    * Look up movies in Radarr / TMDB
    */
   static async lookup(term: string): Promise<ContentItem[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -190,7 +209,9 @@ export class RadarrService {
 
       return results.map(m => this.convertToContentItem(m));
     } catch (err: any) {
-      fileLogger.warn('RadarrService', 'LOOKUP_ERROR', `Ошибка поиска в Radarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('RadarrService', 'LOOKUP_ERROR', `Ошибка поиска в Radarr: ${err.message}`);
+      }
       return [];
     }
   }
@@ -199,6 +220,8 @@ export class RadarrService {
    * Fetch available releases (torrents) for a movie from Radarr indexers
    */
   static async getReleases(movieIdOrTmdbId: number | string): Promise<RadarrRelease[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -208,7 +231,7 @@ export class RadarrService {
 
       const res = await fetch(`${url}/api/v3/release?movieId=${movieIdOrTmdbId}`, {
         headers,
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(6000)
       });
 
       if (!res.ok) return [];
@@ -233,7 +256,9 @@ export class RadarrService {
       }
       return [];
     } catch (err: any) {
-      fileLogger.warn('RadarrService', 'RELEASES_ERROR', `Ошибка получения раздач Radarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('RadarrService', 'RELEASES_ERROR', `Ошибка получения раздач Radarr: ${err.message}`);
+      }
       return [];
     }
   }

@@ -94,8 +94,12 @@ export interface SonarrRelease {
 }
 
 export class SonarrService {
+  public static isConfigured(): boolean {
+    return Boolean(config.sonarrApiKey && config.sonarrUrl);
+  }
+
   private static getBaseUrl(): string {
-    return (config.sonarrUrl || 'http://172.19.0.9:8989').replace(/\/+$/, '');
+    return (config.sonarrUrl || 'http://127.0.0.1:8989').replace(/\/+$/, '');
   }
 
   private static getApiKey(): string {
@@ -115,6 +119,15 @@ export class SonarrService {
   }> {
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
+
+    if (!apiKey) {
+      return {
+        online: false,
+        url,
+        error: 'API-ключ Sonarr не настроен'
+      };
+    }
+
     const startTime = Date.now();
 
     try {
@@ -179,6 +192,8 @@ export class SonarrService {
    * Fetches all series from Sonarr library
    */
   static async getSeries(): Promise<ContentItem[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -200,7 +215,9 @@ export class SonarrService {
 
       return list.map(s => this.convertToContentItem(s));
     } catch (err: any) {
-      fileLogger.warn('SonarrService', 'GET_SERIES_ERROR', `Не удалось получить сериалы из Sonarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('SonarrService', 'GET_SERIES_ERROR', `Не удалось получить сериалы из Sonarr: ${err.message}`);
+      }
       return [];
     }
   }
@@ -209,6 +226,8 @@ export class SonarrService {
    * Look up series by title/TVDB in Sonarr
    */
   static async lookup(term: string): Promise<ContentItem[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -230,7 +249,9 @@ export class SonarrService {
 
       return results.map(s => this.convertToContentItem(s));
     } catch (err: any) {
-      fileLogger.warn('SonarrService', 'LOOKUP_ERROR', `Ошибка поиска сериалов в Sonarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('SonarrService', 'LOOKUP_ERROR', `Ошибка поиска сериалов в Sonarr: ${err.message}`);
+      }
       return [];
     }
   }
@@ -239,6 +260,8 @@ export class SonarrService {
    * Get all episodes for a series from Sonarr
    */
   static async getEpisodes(seriesId: number | string): Promise<SonarrEpisode[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -256,7 +279,9 @@ export class SonarrService {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     } catch (err: any) {
-      fileLogger.warn('SonarrService', 'GET_EPISODES_ERROR', `Ошибка получения серий из Sonarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('SonarrService', 'GET_EPISODES_ERROR', `Ошибка получения серий из Sonarr: ${err.message}`);
+      }
       return [];
     }
   }
@@ -265,6 +290,8 @@ export class SonarrService {
    * Fetch available releases (torrents) for a series or episode from Sonarr indexers
    */
   static async getReleases(seriesId: number | string, episodeId?: number | string): Promise<SonarrRelease[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
@@ -279,7 +306,7 @@ export class SonarrService {
 
       const res = await fetch(endpoint, {
         headers,
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(6000)
       });
 
       if (!res.ok) return [];
@@ -304,7 +331,9 @@ export class SonarrService {
       }
       return [];
     } catch (err: any) {
-      fileLogger.warn('SonarrService', 'RELEASES_ERROR', `Ошибка получения раздач Sonarr: ${err.message}`);
+      if (err?.code !== 'ECONNREFUSED' && !err?.message?.includes('fetch failed')) {
+        fileLogger.warn('SonarrService', 'RELEASES_ERROR', `Ошибка получения раздач Sonarr: ${err.message}`);
+      }
       return [];
     }
   }

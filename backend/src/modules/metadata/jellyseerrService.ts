@@ -30,11 +30,15 @@ export class JellyseerrService {
   }
 
   public static get url(): string {
-    return this.customUrl || config.jellyseerrUrl || 'http://172.19.0.2:5055';
+    return this.customUrl || config.jellyseerrUrl || 'http://127.0.0.1:5055';
   }
 
   public static get apiKey(): string {
     return this.customApiKey || config.jellyseerrApiKey || '';
+  }
+
+  public static isConfigured(): boolean {
+    return Boolean(this.apiKey && this.url);
   }
 
   public static isEnabled(): boolean {

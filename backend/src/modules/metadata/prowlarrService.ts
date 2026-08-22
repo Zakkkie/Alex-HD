@@ -35,8 +35,12 @@ export interface ProwlarrSearchResult {
 }
 
 export class ProwlarrService {
+  public static isConfigured(): boolean {
+    return Boolean(config.prowlarrKey && config.prowlarrUrl);
+  }
+
   private static getBaseUrl(): string {
-    return (config.prowlarrUrl || 'http://172.19.0.5:9696').replace(/\/+$/, '');
+    return (config.prowlarrUrl || 'http://127.0.0.1:9696').replace(/\/+$/, '');
   }
 
   private static getApiKey(): string {
@@ -57,6 +61,15 @@ export class ProwlarrService {
   }> {
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
+
+    if (!apiKey) {
+      return {
+        online: false,
+        url,
+        error: 'API-ключ Prowlarr не настроен'
+      };
+    }
+
     const startTime = Date.now();
 
     try {
@@ -130,13 +143,12 @@ export class ProwlarrService {
     episode?: number;
     limit?: number;
   }): Promise<ProwlarrSearchResult[]> {
+    if (!this.isConfigured()) return [];
+
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
-    if (!apiKey) {
-      fileLogger.warn('ProwlarrService', 'NO_API_KEY', 'Prowlarr API ключ не настроен');
-      return [];
-    }
+    if (!apiKey) return [];
 
     try {
       let searchQuery = opts.query.trim();

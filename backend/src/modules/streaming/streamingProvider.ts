@@ -53,43 +53,45 @@ export class TorrServerStreamingProvider implements StreamingProvider {
     const sources: StreamSource[] = [];
 
     // 1. First priority: Search live Prowlarr torrent indexers
-    try {
-      const prowlarrResults = await ProwlarrService.search({
-        query: content.title || content.originalTitle || '',
-        type: content.type === 'series' ? 'tv' : 'movie',
-        tmdbId: content.tmdbId,
-        season: content.seasonNumber,
-        episode: content.episodeNumber,
-        limit: 30
-      });
+    if (ProwlarrService.isConfigured()) {
+      try {
+        const prowlarrResults = await ProwlarrService.search({
+          query: content.title || content.originalTitle || '',
+          type: content.type === 'series' ? 'tv' : 'movie',
+          tmdbId: content.tmdbId,
+          season: content.seasonNumber,
+          episode: content.episodeNumber,
+          limit: 30
+        });
 
-      if (prowlarrResults.length > 0) {
-        for (const item of prowlarrResults) {
-          const locator = item.magnetUrl || item.guid || item.downloadUrl;
-          if (!locator) continue;
+        if (prowlarrResults.length > 0) {
+          for (const item of prowlarrResults) {
+            const locator = item.magnetUrl || item.guid || item.downloadUrl;
+            if (!locator) continue;
 
-          sources.push({
-            id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
-            provider: 'torrserver',
-            qualityLabel: item.quality === '4k' ? '4k' : item.quality === '720p' ? '720p' : '1080p',
-            resolution: item.resolution,
-            codec: item.codec === 'hevc' ? 'hevc' : 'h264',
-            hdr: item.hdr,
-            bitrateBps: item.quality === '4k' ? 25000000 : item.quality === '1080p' ? 8000000 : 3500000,
-            sizeBytes: item.size || 0,
-            seeds: item.seeders || 1,
-            locator,
-            indexerName: `${item.indexer}${item.audioTracks.length > 0 ? ` (${item.audioTracks.join(', ')})` : ''}`
-          });
+            sources.push({
+              id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              provider: 'torrserver',
+              qualityLabel: item.quality === '4k' ? '4k' : item.quality === '720p' ? '720p' : '1080p',
+              resolution: item.resolution,
+              codec: item.codec === 'hevc' ? 'hevc' : 'h264',
+              hdr: item.hdr,
+              bitrateBps: item.quality === '4k' ? 25000000 : item.quality === '1080p' ? 8000000 : 3500000,
+              sizeBytes: item.size || 0,
+              seeds: item.seeders || 1,
+              locator,
+              indexerName: `${item.indexer}${item.audioTracks.length > 0 ? ` (${item.audioTracks.join(', ')})` : ''}`
+            });
+          }
         }
+      } catch (err: any) {
+        // ignore
       }
-    } catch (err: any) {
-      console.warn('[Prowlarr] Search error:', err.message);
     }
 
     // 2. Second priority: If no Prowlarr results and it's a series or movie, check Sonarr/Radarr releases
     if (sources.length === 0) {
-      if (content.type === 'movie') {
+      if (content.type === 'movie' && RadarrService.isConfigured()) {
         try {
           const radarrReleases = await RadarrService.getReleases(content.tmdbId || content.id);
           for (const rel of radarrReleases) {
@@ -111,7 +113,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
             });
           }
         } catch {}
-      } else if (content.type === 'series') {
+      } else if (content.type === 'series' && SonarrService.isConfigured()) {
         try {
           const sonarrReleases = await SonarrService.getReleases(content.tmdbId || content.id);
           for (const rel of sonarrReleases) {
