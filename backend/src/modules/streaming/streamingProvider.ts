@@ -57,6 +57,8 @@ export class TorrServerStreamingProvider implements StreamingProvider {
       try {
         const prowlarrResults = await ProwlarrService.search({
           query: content.title || content.originalTitle || '',
+          originalTitle: content.originalTitle,
+          year: content.year,
           type: content.type === 'series' ? 'tv' : 'movie',
           tmdbId: content.tmdbId,
           season: content.seasonNumber,
@@ -227,7 +229,9 @@ export class TorrServerStreamingProvider implements StreamingProvider {
       quality: source.qualityLabel,
       codec: source.codec,
       audioChannels: source.qualityLabel === '4k' ? 6 : 2,
-      expiresAt
+      expiresAt,
+      source,
+      locator: source.locator
     };
 
     dbStore.sessions.push(session);

@@ -470,11 +470,11 @@ export const api = {
     }
   },
 
-  async initPlayback(contentId: string, quality: string = '1080p'): Promise<PlaybackSession> {
+  async initPlayback(contentId: string, quality: string = '1080p', sourceId?: string, locator?: string): Promise<PlaybackSession> {
     const res = await fetch(getUrl('/api/v1/playback/play'), {
       method: 'POST',
       headers: defaultHeaders(),
-      body: JSON.stringify({ contentId, quality })
+      body: JSON.stringify({ contentId, quality, sourceId, locator })
     });
     const data = await res.json();
     if (!res.ok) {

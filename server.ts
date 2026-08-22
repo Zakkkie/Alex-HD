@@ -829,7 +829,7 @@ async function startServer() {
         });
       }
 
-      const { contentId, quality = '1080p', targetNodeId } = req.body;
+      const { contentId, quality = '1080p', targetNodeId, sourceId, locator } = req.body;
       let contentItem = dbStore.content.find(c => c.id === contentId || (c.tmdb_id && String(c.tmdb_id) === String(contentId)));
 
       if (!contentItem) {
@@ -854,14 +854,32 @@ async function startServer() {
         year: contentItem.release_year
       });
 
-      const selectedSource = sources.find(s => s.qualityLabel === quality) || sources[0];
+      let selectedSource = sources.find(s => s.id === sourceId) || sources.find(s => s.qualityLabel === quality) || sources[0];
+
+      if (locator) {
+        selectedSource = {
+          id: sourceId || `custom-${Date.now()}`,
+          title: `${contentItem.title} (${quality})`,
+          provider: 'torrserver',
+          qualityLabel: (quality as any) || '1080p',
+          resolution: quality === '4k' ? '3840x2160' : '1920x1080',
+          codec: 'h264',
+          hdr: false,
+          bitrateBps: quality === '4k' ? 25000000 : 8000000,
+          sizeBytes: 0,
+          seeds: 15,
+          locator
+        };
+      }
 
       // Step 2: Route to least-loaded edge node using Least-Loaded Routing Formula
       const session = await streamingProvider.createSession(selectedSource, userId, targetNodeId);
 
       // Attach direct TorrServer and proxy streaming references
-      const torrNode = dbStore.nodes.find(n => n.nodeId === session.nodeId) || dbStore.nodes[0];
-      const directTorrServerUrl = `http://${torrNode.hostname}/stream?link=${encodeURIComponent(selectedSource.locator)}&play=true`;
+      const torrHost = (config.torrServerUrl || process.env.TORRSERVER_URL || 'http://torrserver:8090').replace(/\/+$/, '');
+      const directTorrServerUrl = selectedSource?.locator?.startsWith('http')
+        ? selectedSource.locator
+        : `${torrHost}/stream?link=${encodeURIComponent(selectedSource.locator)}&play=true`;
 
       res.json({
         ...session,
@@ -934,18 +952,22 @@ async function startServer() {
     // Reliable public MP4 test streams (bypasses blocked Google Storage in RU)
     const reliableStreams = [
       'https://raw.githubusercontent.com/mediaelement/mediaelement-files/master/big_buck_bunny.mp4',
-      'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4'
+      'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'
     ];
 
     const range = req.headers.range;
 
-    // Check if TorrServer is active for this session
+    // Check if TorrServer has an active torrent locator for this session
+    const torrHost = (config.torrServerUrl || process.env.TORRSERVER_URL || 'http://torrserver:8090').replace(/\/+$/, '');
+    const rawLocator = session?.locator || session?.source?.locator;
     let directStreamUrl = reliableStreams[0];
-    if (session) {
-      const node = dbStore.nodes.find(n => n.nodeId === session.nodeId);
-      if (node && node.isOnline) {
-        directStreamUrl = `http://${node.hostname}/stream?link=${sessionId}&play=true`;
+
+    if (rawLocator) {
+      if (rawLocator.startsWith('http://') || rawLocator.startsWith('https://')) {
+        directStreamUrl = rawLocator;
+      } else {
+        // Direct TorrServer stream endpoint for the magnet / info_hash
+        directStreamUrl = `${torrHost}/stream?link=${encodeURIComponent(rawLocator)}&play=true`;
       }
     }
 
@@ -958,15 +980,15 @@ async function startServer() {
         fetchHeaders['Range'] = range;
       }
 
-      // Try primary stream
+      // Try TorrServer stream
       let streamRes = await fetch(directStreamUrl, {
         headers: fetchHeaders,
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(6000)
       }).catch(() => null);
 
-      // If primary failed, try secondary reliable stream
+      // If TorrServer stream is not responding, try reliable backup
       if (!streamRes || !streamRes.ok) {
-        streamRes = await fetch(reliableStreams[1], {
+        streamRes = await fetch(reliableStreams[0], {
           headers: fetchHeaders,
           signal: AbortSignal.timeout(5000)
         }).catch(() => null);

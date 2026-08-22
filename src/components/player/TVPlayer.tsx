@@ -747,11 +747,22 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
     });
   };
 
-  const handleSelectAlternateRelease = (release: any) => {
+  const handleSelectAlternateRelease = async (release: any) => {
     setShowReleasesModal(false);
-    addLog('USER', `Пользователь выбрал раздачу: "${release.title || 'Новый релиз'}" (${release.quality || '1080p'})`, 'info');
-    if (release.downloadUrl || release.locator) {
-      setActiveStreamUrl(release.downloadUrl || release.locator);
+    const releaseTitle = release.title || 'Новый релиз';
+    const releaseQuality = release.quality || release.qualityLabel || currentQuality;
+    const locator = release.magnetUrl || release.locator || release.downloadUrl || release.guid;
+    addLog('USER', `Пользователь выбрал раздачу: "${releaseTitle}" (${releaseQuality})`, 'info');
+    try {
+      const sess = await api.initPlayback(content.id, releaseQuality, release.id, locator);
+      setActiveSession(sess);
+      if (sess.streamUrl) {
+        setActiveStreamUrl(sess.streamUrl);
+      }
+    } catch (e) {
+      if (locator && (locator.startsWith('http://') || locator.startsWith('https://'))) {
+        setActiveStreamUrl(locator);
+      }
     }
     startConnectionPipeline();
   };

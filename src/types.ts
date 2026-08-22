@@ -319,6 +319,10 @@ export interface PlaybackSession {
   codec: string;
   audioChannels: number;
   expiresAt: string;
+  source?: StreamSource;
+  locator?: string;
+  directTorrServerUrl?: string;
+  title?: string;
 }
 
 export interface NodeHealthStatus {

@@ -36,15 +36,15 @@ export interface ProwlarrSearchResult {
 
 export class ProwlarrService {
   public static isConfigured(): boolean {
-    return Boolean(config.prowlarrKey && config.prowlarrUrl);
+    return Boolean(config.prowlarrUrl);
   }
 
   private static getBaseUrl(): string {
-    return (config.prowlarrUrl || 'http://127.0.0.1:9696').replace(/\/+$/, '');
+    return (config.prowlarrUrl || process.env.PROWLARR_URL || 'http://127.0.0.1:9696').replace(/\/+$/, '');
   }
 
   private static getApiKey(): string {
-    return config.prowlarrKey || '';
+    return config.prowlarrKey || process.env.PROWLARR_API_KEY || '';
   }
 
   /**
@@ -61,14 +61,6 @@ export class ProwlarrService {
   }> {
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
-
-    if (!apiKey) {
-      return {
-        online: false,
-        url,
-        error: 'API-ключ Prowlarr не настроен'
-      };
-    }
 
     const startTime = Date.now();
 
@@ -91,8 +83,11 @@ export class ProwlarrService {
         let indexers: string[] = [];
 
         try {
+          const idxHeaders: Record<string, string> = { 'Accept': 'application/json' };
+          if (apiKey) idxHeaders['X-Api-Key'] = apiKey;
+
           const idxRes = await fetch(`${url}/api/v1/indexer`, {
-            headers,
+            headers: idxHeaders,
             signal: AbortSignal.timeout(3000)
           });
           if (idxRes.ok) {
@@ -112,6 +107,15 @@ export class ProwlarrService {
           url,
           indexersCount: indexers.length,
           indexers,
+          latencyMs
+        };
+      }
+
+      if (res.status === 401 && !apiKey) {
+        return {
+          online: false,
+          url,
+          error: 'Prowlarr требует API ключ (укажите в .env или в Настройках)',
           latencyMs
         };
       }
@@ -136,6 +140,8 @@ export class ProwlarrService {
    */
   static async search(opts: {
     query: string;
+    originalTitle?: string;
+    year?: number;
     type?: 'movie' | 'tv';
     imdbId?: string;
     tmdbId?: number;
@@ -148,114 +154,129 @@ export class ProwlarrService {
     const url = this.getBaseUrl();
     const apiKey = this.getApiKey();
 
-    if (!apiKey) return [];
-
-    try {
-      let searchQuery = opts.query.trim();
-      if (opts.season !== undefined && opts.season > 0) {
-        const sStr = opts.season < 10 ? `S0${opts.season}` : `S${opts.season}`;
-        if (opts.episode !== undefined && opts.episode > 0) {
-          const eStr = opts.episode < 10 ? `E0${opts.episode}` : `E${opts.episode}`;
-          searchQuery = `${searchQuery} ${sStr}${eStr}`;
-        } else {
-          searchQuery = `${searchQuery} ${sStr}`;
+    const doQuery = async (searchQuery: string): Promise<ProwlarrSearchResult[]> => {
+      try {
+        let q = searchQuery.trim();
+        if (opts.season !== undefined && opts.season > 0) {
+          const sStr = opts.season < 10 ? `S0${opts.season}` : `S${opts.season}`;
+          if (opts.episode !== undefined && opts.episode > 0) {
+            const eStr = opts.episode < 10 ? `E0${opts.episode}` : `E${opts.episode}`;
+            q = `${q} ${sStr}${eStr}`;
+          } else {
+            q = `${q} ${sStr}`;
+          }
         }
+
+        const categories = opts.type === 'tv' ? '5000' : opts.type === 'movie' ? '2000' : '2000,5000';
+        const endpoint = `${url}/api/v1/search?query=${encodeURIComponent(q)}&categories=${categories}&type=search&limit=${opts.limit || 40}`;
+
+        const headers: Record<string, string> = { 'Accept': 'application/json' };
+        if (apiKey) headers['X-Api-Key'] = apiKey;
+
+        const res = await fetch(endpoint, {
+          headers,
+          signal: AbortSignal.timeout(9000)
+        });
+
+        if (!res.ok) {
+          return [];
+        }
+
+        const rawResults = await res.json();
+        if (!Array.isArray(rawResults)) return [];
+
+        const parsed: ProwlarrSearchResult[] = rawResults.map(item => {
+          const title = item.title || '';
+          const sizeBytes = item.size || 0;
+          const seeders = item.seeders || 0;
+          const leechers = item.leechers || 0;
+
+          let quality: '4k' | '1080p' | '720p' | 'sd' = '1080p';
+          let resolution = '1080p';
+          if (/2160p|4k|uhd/i.test(title)) {
+            quality = '4k';
+            resolution = '2160p (4K)';
+          } else if (/720p|hd/i.test(title) && !/1080p/i.test(title)) {
+            quality = '720p';
+            resolution = '720p (HD)';
+          } else if (/sd|dvdrip|hdtv/i.test(title) && !/1080|720|2160/i.test(title)) {
+            quality = 'sd';
+            resolution = 'SD (576p)';
+          }
+
+          const codec: 'hevc' | 'h264' | 'av1' = /av1/i.test(title) ? 'av1' : /x265|hevc|h265/i.test(title) ? 'hevc' : 'h264';
+          const hdr = /hdr|dovi|dolby\s*vision|hdr10/i.test(title);
+          let hdrFormat: string | undefined;
+          if (/dolby\s*vision|dovi/i.test(title)) hdrFormat = 'Dolby Vision';
+          else if (/hdr10\+/i.test(title)) hdrFormat = 'HDR10+';
+          else if (/hdr/i.test(title)) hdrFormat = 'HDR';
+
+          // Extract audio dubbing / audio tracks info
+          const audioTracks: string[] = [];
+          if (/дубляж|dub/i.test(title)) audioTracks.push('Дубляж');
+          if (/mvo|мво|многоголосый/i.test(title)) audioTracks.push('Многоголосый');
+          if (/red\s*head\s*sound|rhs/i.test(title)) audioTracks.push('Red Head Sound');
+          if (/lostfilm/i.test(title)) audioTracks.push('LostFilm');
+          if (/hdrezka|rezka/i.test(title)) audioTracks.push('HDRezka');
+          if (/кубик\s*в\s*кубе|kubik/i.test(title)) audioTracks.push('Кубик в Кубе');
+          if (/alexfilm/i.test(title)) audioTracks.push('AlexFilm');
+          if (/atmos|dolby\s*atmos/i.test(title)) audioTracks.push('Dolby Atmos');
+          if (/dts|5\.1|7\.1/i.test(title)) audioTracks.push('5.1 Surround');
+          if (audioTracks.length === 0) {
+            audioTracks.push(/rus|рус/i.test(title) ? 'Русский' : 'Оригинал / Multi');
+          }
+
+          const sizeGb = (sizeBytes / (1024 * 1024 * 1024)).toFixed(1);
+          const formattedSize = sizeBytes > 1024 * 1024 * 1024 ? `${sizeGb} ГБ` : `${(sizeBytes / (1024 * 1024)).toFixed(0)} МБ`;
+
+          const magnetUrl = item.magnetUrl || item.guid || item.downloadUrl;
+
+          return {
+            guid: item.guid || item.infoHash || Math.random().toString(36).substring(2, 10),
+            title,
+            size: sizeBytes,
+            formattedSize,
+            downloadUrl: item.downloadUrl,
+            magnetUrl,
+            infoHash: item.infoHash,
+            indexer: item.indexer || 'Prowlarr',
+            indexerId: item.indexerId,
+            seeders,
+            leechers,
+            publishDate: item.publishDate,
+            quality,
+            resolution,
+            codec,
+            hdr,
+            hdrFormat,
+            audioTracks,
+            isRepack: /repack|proper/i.test(title)
+          };
+        });
+
+        parsed.sort((a, b) => b.seeders - a.seeders);
+        return parsed;
+      } catch (err: any) {
+        return [];
       }
+    };
 
-      const categories = opts.type === 'tv' ? '5000' : opts.type === 'movie' ? '2000' : '2000,5000';
-      const endpoint = `${url}/api/v1/search?query=${encodeURIComponent(searchQuery)}&categories=${categories}&type=search&limit=${opts.limit || 40}`;
+    // 1. Try exact query
+    let results = await doQuery(opts.query);
 
-      const headers: Record<string, string> = { 'Accept': 'application/json' };
-      headers['X-Api-Key'] = apiKey;
-
-      const res = await fetch(endpoint, {
-        headers,
-        signal: AbortSignal.timeout(9000)
-      });
-
-      if (!res.ok) {
-        throw new Error(`Prowlarr HTTP ${res.status}`);
-      }
-
-      const rawResults = await res.json();
-      if (!Array.isArray(rawResults)) return [];
-
-      const parsed: ProwlarrSearchResult[] = rawResults.map(item => {
-        const title = item.title || '';
-        const sizeBytes = item.size || 0;
-        const seeders = item.seeders || 0;
-        const leechers = item.leechers || 0;
-
-        let quality: '4k' | '1080p' | '720p' | 'sd' = '1080p';
-        let resolution = '1080p';
-        if (/2160p|4k|uhd/i.test(title)) {
-          quality = '4k';
-          resolution = '2160p (4K)';
-        } else if (/720p|hd/i.test(title) && !/1080p/i.test(title)) {
-          quality = '720p';
-          resolution = '720p (HD)';
-        } else if (/sd|dvdrip|hdtv/i.test(title) && !/1080|720|2160/i.test(title)) {
-          quality = 'sd';
-          resolution = 'SD (576p)';
-        }
-
-        const codec: 'hevc' | 'h264' | 'av1' = /av1/i.test(title) ? 'av1' : /x265|hevc|h265/i.test(title) ? 'hevc' : 'h264';
-        const hdr = /hdr|dovi|dolby\s*vision|hdr10/i.test(title);
-        let hdrFormat: string | undefined;
-        if (/dolby\s*vision|dovi/i.test(title)) hdrFormat = 'Dolby Vision';
-        else if (/hdr10\+/i.test(title)) hdrFormat = 'HDR10+';
-        else if (/hdr/i.test(title)) hdrFormat = 'HDR';
-
-        // Extract audio dubbing / audio tracks info
-        const audioTracks: string[] = [];
-        if (/дубляж|dub/i.test(title)) audioTracks.push('Дубляж');
-        if (/mvo|мво|многоголосый/i.test(title)) audioTracks.push('Многоголосый');
-        if (/red\s*head\s*sound|rhs/i.test(title)) audioTracks.push('Red Head Sound');
-        if (/lostfilm/i.test(title)) audioTracks.push('LostFilm');
-        if (/hdrezka|rezka/i.test(title)) audioTracks.push('HDRezka');
-        if (/кубик\s*в\s*кубе|kubik/i.test(title)) audioTracks.push('Кубик в Кубе');
-        if (/alexfilm/i.test(title)) audioTracks.push('AlexFilm');
-        if (/atmos|dolby\s*atmos/i.test(title)) audioTracks.push('Dolby Atmos');
-        if (/dts|5\.1|7\.1/i.test(title)) audioTracks.push('5.1 Surround');
-        if (audioTracks.length === 0) {
-          audioTracks.push(/rus|рус/i.test(title) ? 'Русский' : 'Оригинал / Multi');
-        }
-
-        const sizeGb = (sizeBytes / (1024 * 1024 * 1024)).toFixed(1);
-        const formattedSize = sizeBytes > 1024 * 1024 * 1024 ? `${sizeGb} ГБ` : `${(sizeBytes / (1024 * 1024)).toFixed(0)} МБ`;
-
-        const magnetUrl = item.magnetUrl || item.guid || item.downloadUrl;
-
-        return {
-          guid: item.guid || item.infoHash || Math.random().toString(36).substring(2, 10),
-          title,
-          size: sizeBytes,
-          formattedSize,
-          downloadUrl: item.downloadUrl,
-          magnetUrl,
-          infoHash: item.infoHash,
-          indexer: item.indexer || 'Prowlarr',
-          indexerId: item.indexerId,
-          seeders,
-          leechers,
-          publishDate: item.publishDate,
-          quality,
-          resolution,
-          codec,
-          hdr,
-          hdrFormat,
-          audioTracks,
-          isRepack: /repack|proper/i.test(title)
-        };
-      });
-
-      // Sort by seeders descending, then size
-      parsed.sort((a, b) => b.seeders - a.seeders);
-
-      return parsed;
-    } catch (err: any) {
-      fileLogger.warn('ProwlarrService', 'SEARCH_ERROR', `Ошибка поиска Prowlarr: ${err.message}`);
-      return [];
+    // 2. If 0 results and original title is provided, try searching original title
+    if (results.length === 0 && opts.originalTitle && opts.originalTitle !== opts.query) {
+      results = await doQuery(opts.originalTitle);
     }
+
+    // 3. If 0 results, try stripped title (without colons, dashes)
+    if (results.length === 0) {
+      const cleanTitle = opts.query.replace(/[:\-–—!?]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (cleanTitle !== opts.query) {
+        results = await doQuery(cleanTitle);
+      }
+    }
+
+    return results;
   }
 }
