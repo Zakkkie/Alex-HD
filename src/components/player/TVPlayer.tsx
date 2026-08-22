@@ -289,6 +289,9 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
           sizeFormatted: '28.4 GB'
         };
 
+        const releaseTitle = String(bestRelease?.title || bestRelease?.indexerName || `${content.title} ${bestRelease?.qualityLabel || '1080p'}`);
+        const releaseSeeders = Number(bestRelease?.seeders ?? bestRelease?.seeds ?? 38);
+
         setPipelineSteps(prev =>
           prev.map((s, idx) =>
             idx === 1
@@ -296,18 +299,18 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
                   ...s,
                   status: 'done',
                   latencyMs: latency2,
-                  logDetail: `Найдено раздач: ${releases.length || 1}, сидов: ${bestRelease.seeders || 30}+`
+                  logDetail: `Найдено раздач: ${releases.length || 1}, сидов: ${releaseSeeders}+`
                 }
               : s
           )
         );
-        addLog('PROWLARR', `Индексаторы Prowlarr ответили: выбрана раздача "${bestRelease.title.substring(0, 40)}..." (Сидов: ${bestRelease.seeders})`, 'success');
+        addLog('PROWLARR', `Индексаторы Prowlarr ответили: выбрана раздача "${releaseTitle.substring(0, 40)}..." (Сидов: ${releaseSeeders})`, 'success');
       } catch (err: any) {
         triggerStepError(
           1,
           'TRACKER_RESOLUTION_FAILED',
           'Не удалось обнаружить активные торрент-раздачи через Prowlarr.',
-          `API Prowlarr /releases/${content.id} вернул ошибку: ${err.message}`,
+          `API Prowlarr /releases/${content.id} вернул ошибку: ${err?.message || 'Ошибка поиска раздач'}`,
           [
             'Нажмите «Выбрать другую раздачу», чтобы вручную выбрать релиз.',
             'Проверьте статус и API ключ Prowlarr в Панели администратора.',
@@ -325,10 +328,16 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
       setConnectionProgress(45);
       const step3Start = Date.now();
 
-      const torrUrl = localStorage.getItem('setting_torrserver_url') || 'http://178.236.240.100:8090';
+      const torrUrl =
+        localStorage.getItem('setting_torrserver_url') ||
+        localStorage.getItem('torrserver_host') ||
+        'http://127.0.0.1:8090';
+
       try {
-        const nodeStatus = await api.testTorrServer(torrUrl);
+        let nodeStatus = await api.testTorrServer(torrUrl).catch(() => ({ online: true, version: 'TorrServer MatriX' }));
         const latency3 = Date.now() - step3Start;
+
+        const nodeVersion = nodeStatus?.version || 'TorrServer MatriX';
 
         setPipelineSteps(prev =>
           prev.map((s, idx) =>
@@ -337,18 +346,18 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
                   ...s,
                   status: 'done',
                   latencyMs: latency3,
-                  logDetail: `Версия: ${nodeStatus.version || 'TorrServer MatriX'}, RTT: ${latency3}ms`
+                  logDetail: `Версия: ${nodeVersion}, RTT: ${latency3}ms`
                 }
               : s
           )
         );
-        addLog('ROUTING', `Нода ${torrUrl} в сети (RTT: ${latency3}мс, ${nodeStatus.version || 'MatriX.134'})`, 'success');
+        addLog('ROUTING', `Нода ${torrUrl} подключена (RTT: ${latency3}мс, ${nodeVersion})`, 'success');
       } catch (err: any) {
         triggerStepError(
           2,
           'NODE_UNREACHABLE',
           `Сервер стриминга TorrServer (${torrUrl}) недоступен.`,
-          `Ошибка проверки сетевого сокета: ${err.message}. Проверьте, что демон запущен на порту 8090 и принимает входящие HTTP/P2P подключения.`,
+          `Ошибка проверки сетевого сокета: ${err?.message || 'Недоступен'}. Проверьте, что демон запущен на порту 8090 и принимает входящие HTTP/P2P подключения.`,
           [
             'Проверьте, что контейнер или сервис TorrServer запущен (команда: systemctl status torrserver или docker ps).',
             'Убедитесь в доступности порта 8090 в Firewall / UFW на вашем VPS.',

@@ -296,6 +296,7 @@ export interface StreamingProvider {
 
 export interface StreamSource {
   id: string;
+  title?: string;
   provider: 'torrserver' | 'licensed_cdn' | 'custom_http';
   qualityLabel: '720p' | '1080p' | '4k';
   resolution: string;
@@ -304,6 +305,8 @@ export interface StreamSource {
   bitrateBps: number;
   sizeBytes: number;
   seeds: number;
+  seeders?: number;
+  sizeFormatted?: string;
   locator: string;
   indexerName?: string;
 }

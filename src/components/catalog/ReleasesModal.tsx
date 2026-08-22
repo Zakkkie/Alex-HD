@@ -191,7 +191,7 @@ export const ReleasesModal: React.FC<ReleasesModalProps> = ({
                     </div>
 
                     <div className="text-sm font-semibold text-[#f5f3ef] truncate">
-                      {source.indexerName || 'Prowlarr Tracker Source'}
+                      {source.title || source.indexerName || 'Prowlarr Tracker Source'}
                     </div>
                   </div>
 

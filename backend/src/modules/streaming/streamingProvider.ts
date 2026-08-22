@@ -71,6 +71,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
 
             sources.push({
               id: `prowlarr-${item.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              title: item.title || `${content.title} ${item.quality || '1080p'}`,
               provider: 'torrserver',
               qualityLabel: item.quality === '4k' ? '4k' : item.quality === '720p' ? '720p' : '1080p',
               resolution: item.resolution,
@@ -79,6 +80,8 @@ export class TorrServerStreamingProvider implements StreamingProvider {
               bitrateBps: item.quality === '4k' ? 25000000 : item.quality === '1080p' ? 8000000 : 3500000,
               sizeBytes: item.size || 0,
               seeds: item.seeders || 1,
+              seeders: item.seeders || 1,
+              sizeFormatted: item.size ? `${(item.size / (1024 * 1024 * 1024)).toFixed(1)} GB` : undefined,
               locator,
               indexerName: `${item.indexer}${item.audioTracks.length > 0 ? ` (${item.audioTracks.join(', ')})` : ''}`
             });
@@ -100,6 +103,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
             const is4k = (rel.title || '').includes('2160p') || (rel.title || '').includes('4K');
             sources.push({
               id: `radarr-${rel.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              title: rel.title || `${content.title} ${is4k ? '4K' : '1080p'}`,
               provider: 'torrserver',
               qualityLabel: is4k ? '4k' : '1080p',
               resolution: is4k ? '3840x2160' : '1920x1080',
@@ -108,6 +112,8 @@ export class TorrServerStreamingProvider implements StreamingProvider {
               bitrateBps: is4k ? 25000000 : 8000000,
               sizeBytes: rel.size || 0,
               seeds: rel.seeders || 1,
+              seeders: rel.seeders || 1,
+              sizeFormatted: rel.size ? `${(rel.size / (1024 * 1024 * 1024)).toFixed(1)} GB` : undefined,
               locator: loc,
               indexerName: `Radarr / ${rel.indexer}`
             });
@@ -122,6 +128,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
             const is4k = (rel.title || '').includes('2160p') || (rel.title || '').includes('4K');
             sources.push({
               id: `sonarr-${rel.infoHash || Math.random().toString(36).substring(2, 10)}`,
+              title: rel.title || `${content.title} ${is4k ? '4K' : '1080p'}`,
               provider: 'torrserver',
               qualityLabel: is4k ? '4k' : '1080p',
               resolution: is4k ? '3840x2160' : '1920x1080',
@@ -130,6 +137,8 @@ export class TorrServerStreamingProvider implements StreamingProvider {
               bitrateBps: is4k ? 25000000 : 8000000,
               sizeBytes: rel.size || 0,
               seeds: rel.seeders || 1,
+              seeders: rel.seeders || 1,
+              sizeFormatted: rel.size ? `${(rel.size / (1024 * 1024 * 1024)).toFixed(1)} GB` : undefined,
               locator: loc,
               indexerName: `Sonarr / ${rel.indexer}`
             });
@@ -143,6 +152,7 @@ export class TorrServerStreamingProvider implements StreamingProvider {
       if (content.id.includes('4k') || (content.title && /дюна|интерстеллар|оппенгеймер|титанов|аркейн/i.test(content.title))) {
         sources.push({
           id: `src-${content.id}-4k-hevc`,
+          title: `${content.title} 4K UHD HEVC HDR Remux`,
           provider: 'torrserver',
           qualityLabel: '4k',
           resolution: '3840x2160',
@@ -151,12 +161,15 @@ export class TorrServerStreamingProvider implements StreamingProvider {
           bitrateBps: 25000000,
           sizeBytes: 42000000000,
           seeds: 184,
+          seeders: 184,
+          sizeFormatted: '39.1 GB',
           locator: `magnet:?xt=urn:btih:e27a6f7bcfbc0a473b1853634282c0f6fdfdf404&dn=${encodeURIComponent(content.title + ' 4K UHD HEVC HDR')}`
         });
       }
 
       sources.push({
         id: `src-${content.id}-1080p-h264`,
+        title: `${content.title} 1080p BluRay H.264 Dual Dub`,
         provider: 'torrserver',
         qualityLabel: '1080p',
         resolution: '1920x1080',
@@ -165,11 +178,14 @@ export class TorrServerStreamingProvider implements StreamingProvider {
         bitrateBps: 8000000,
         sizeBytes: 12000000000,
         seeds: 340,
+        seeders: 340,
+        sizeFormatted: '11.2 GB',
         locator: `magnet:?xt=urn:btih:3fa8f1423c91e92d9bb410b0d3bf1bb786f78111&dn=${encodeURIComponent(content.title + ' 1080p H264 Dual Dub')}`
       });
 
       sources.push({
         id: `src-${content.id}-720p-h264`,
+        title: `${content.title} 720p WEB-DL Multilingual`,
         provider: 'torrserver',
         qualityLabel: '720p',
         resolution: '1280x720',
@@ -178,6 +194,8 @@ export class TorrServerStreamingProvider implements StreamingProvider {
         bitrateBps: 3500000,
         sizeBytes: 4500000000,
         seeds: 120,
+        seeders: 120,
+        sizeFormatted: '4.2 GB',
         locator: `magnet:?xt=urn:btih:7543fa92e816a75ffbd830bd8fbfbd823fa484ff&dn=${encodeURIComponent(content.title + ' 720p Multilingual')}`
       });
     }
