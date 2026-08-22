@@ -1,6 +1,7 @@
 import { dbStore } from '../../db/store';
 import { config } from '../../config/env';
 import { ContentItem, Season, Episode } from '../../../../src/types';
+import { fallbackContent } from '../../../../src/data/fallbackCatalog';
 import { JellyseerrService } from './jellyseerrService';
 import { ProwlarrService } from './prowlarrService';
 import { RadarrService } from './radarrService';
@@ -1192,87 +1193,20 @@ export class MetadataService {
         this.syncState.currentStep = `Сохранение в базу: "${formatted.title}" (${processed}/${totalCount})`;
       }
 
-      // FALLBACK: Procedural generator to guarantee at least 1050 items under all conditions
-      let currentCount = dbStore.content.length;
-      if (currentCount < 1050) {
-        console.log(`[TMDB Auto-Sync] Current DB count ${currentCount} is below 1050 target. Generating high-quality procedural items to reach target...`);
-        const needed = 1050 - currentCount;
-        
-        const genresPool = ['Фантастика', 'Боевик', 'Приключения', 'Драма', 'Комедия', 'Триллер', 'Криминал', 'Аниме', 'Мультфильм', 'Фэнтези', 'Биография', 'Детектив', 'Ужасы'];
-        const countriesPool = ['США', 'Великобритания', 'Канада', 'Франция', 'Япония', 'Южная Корея', 'Германия', 'Испания', 'Италия'];
-        const directorsPool = ['Кристофер Нолан', 'Дени Вильнёв', 'Квентин Тарантино', 'Мартин Скорсезе', 'Стивен Спилберг', 'Джеймс Кэмерон', 'Ридли Скотт', 'Дэвид Финчер', 'Хаяо Миядзаки'];
-        const castPool = ['Тимоти Шаламе', 'Райан Гослинг', 'Леонардо ДиКаприо', 'Брэд Питт', 'Том Харди', 'Киану Ривз', 'Скарлетт Йоханссон', 'Мэттью Макконахи', 'Кристиан Бэйл', 'Хоакин Феникс'];
-        
-        const adjectives = ['Секретный', 'Последний', 'Забытый', 'Тёмный', 'Вечный', 'Красный', 'Виртуальный', 'Неоновый', 'Космический', 'Золотой', 'Ледяной', 'Чужой', 'Великий', 'Древний', 'Призрачный', 'Железный', 'Безумный', 'Холодный', 'Смертельный', 'Звёздный', 'Ночной', 'Дикий', 'Белый', 'Небесный', 'Огненный', 'Хитрый', 'Быстрый', 'Жестокий', 'Опасный', 'Тихий'];
-        const nouns = ['Орден', 'Предел', 'Горизонт', 'Феникс', 'Клинок', 'Мираж', 'Аванпост', 'Синдикат', 'Ковчег', 'Протокол', 'Призрак', 'Лабиринт', 'Резонанс', 'Фантом', 'Калибр', 'Спектр', 'Рассвет', 'Остров', 'Рубеж', 'Эффект', 'Вектор', 'Сектор', 'Воин', 'Агент', 'Король', 'Рыцарь', 'Паук', 'Проводник', 'Шпион', 'Солдат', 'Город', 'Замок'];
-        
-        const posterUnsplash = [
-          'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=500&q=80',
-          'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=500&q=80',
-          'https://images.unsplash.com/photo-1578632767115-351597cf2477?w=500&q=80',
-          'https://images.unsplash.com/photo-1535016120720-40c646be5580?w=500&q=80',
-          'https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=500&q=80',
-          'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=500&q=80',
-          'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=500&q=80',
-          'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&q=80',
-          'https://images.unsplash.com/photo-1599837565318-67429bde7162?w=500&q=80',
-          'https://images.unsplash.com/photo-1563089145-599997674d42?w=500&q=80',
-        ];
+      // Purge any legacy synthetic stub items from store
+      dbStore.content = dbStore.content.filter(
+        (c) => !c.id.startsWith('synthetic-') && !c.title.includes('Неоновый') && !c.title.includes('Космический Солдат')
+      );
 
-        const backdropUnsplash = [
-          'https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0?w=1200&q=80',
-          'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&q=80',
-          'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=1200&q=80',
-          'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1200&q=80',
-          'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&q=80',
-          'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&q=80',
-        ];
-
-        for (let i = 0; i < needed; i++) {
-          const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-          const noun = nouns[Math.floor(Math.random() * nouns.length)];
-          const title = `${adj} ${noun}`;
-          const isMovie = Math.random() > 0.35;
-          const id = `synthetic-${isMovie ? 'movie' : 'series'}-${currentCount + i}`;
-          
-          const rating_imdb = Math.round((6.1 + Math.random() * 3.7) * 10) / 10;
-          const release_year = 2000 + Math.floor(Math.random() * 27); // 2000 to 2026
-
-          const itemGenres = [
-            genresPool[Math.floor(Math.random() * genresPool.length)],
-            genresPool[Math.floor(Math.random() * genresPool.length)]
-          ].filter((v, idx, arr) => arr.indexOf(v) === idx);
-
-          const syntheticItem: ContentItem = {
-            id,
-            tmdb_id: 9000000 + i,
-            type: isMovie ? 'movie' : 'series',
-            title,
-            original_title: `${adj} ${noun} Remastered`,
-            release_year,
-            age_rating: Math.random() > 0.4 ? '16+' : '18+',
-            rating_imdb,
-            rating_tmdb: Math.round((rating_imdb - 0.2 + Math.random() * 0.4) * 10) / 10,
-            runtime_minutes: isMovie ? 85 + Math.floor(Math.random() * 95) : 45,
-            overview: `Захватывающий шедевр кинематографа в формате Ultra HD. История о невероятных приключениях и судьбоносных событиях в мире, где "${title}" кардинально меняет судьбы героев. Потрясающие визуальные эффекты и звездный состав.`,
-            poster_url: posterUnsplash[Math.floor(Math.random() * posterUnsplash.length)],
-            backdrop_url: backdropUnsplash[Math.floor(Math.random() * backdropUnsplash.length)],
-            is_4k: Math.random() > 0.5,
-            is_published: true,
-            play_count: Math.floor(Math.random() * 25000) + 150,
-            genres: itemGenres,
-            country: countriesPool[Math.floor(Math.random() * countriesPool.length)],
-            director: directorsPool[Math.floor(Math.random() * directorsPool.length)],
-            cast: [
-              castPool[Math.floor(Math.random() * castPool.length)],
-              castPool[Math.floor(Math.random() * castPool.length)],
-              castPool[Math.floor(Math.random() * castPool.length)]
-            ].filter((v, idx, arr) => arr.indexOf(v) === idx)
-          };
-
-          dbStore.content.push(syntheticItem);
-          addedCount++;
-        }
+      // If store is still empty after TMDB fetch attempts (e.g. TMDB API network issue on VPS), populate with real fallback items
+      if (dbStore.content.length === 0 && fallbackContent.length > 0) {
+        console.log('[TMDB Auto-Sync] TMDB API was unreachable or empty. Populating catalog with real popular fallback movies & series...');
+        fallbackContent.forEach((item) => {
+          if (!dbStore.content.some((c) => c.id === item.id || (c.tmdb_id && c.tmdb_id === item.tmdb_id))) {
+            dbStore.content.push(item);
+            addedCount++;
+          }
+        });
       }
 
       const failingApisCount = (this.syncState.apiReports || []).filter(r => r.status === 'error').length;

@@ -77,6 +77,9 @@ export class UserService {
         content
       };
       dbStore.history.push(historyItem);
+      if (dbStore.history.length > 1000) {
+        dbStore.history = dbStore.history.slice(-1000);
+      }
     }
 
     return historyItem;

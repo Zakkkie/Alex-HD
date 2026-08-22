@@ -606,6 +606,11 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
       return () => {
         video.removeEventListener('error', handleVideoError);
         hls.destroy();
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch {}
       };
     } else {
       video.src = activeStreamUrl;
@@ -615,6 +620,12 @@ export const TVPlayer: React.FC<TVPlayerProps> = ({
       };
       return () => {
         video.removeEventListener('error', handleVideoError);
+        video.onloadedmetadata = null;
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch {}
       };
     }
   }, [activeStreamUrl, pipelineStatus, initialPositionSeconds]);

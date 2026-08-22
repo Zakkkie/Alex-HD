@@ -52,6 +52,10 @@ export class CatalogService {
 
     const heroItems = published.filter(c => c.is_hero === true);
 
+    const totalMoviesCount = published.filter(c => c.type === 'movie').length;
+    const totalSeriesCount = published.filter(c => c.type === 'series').length;
+    const totalCatalogCount = published.length;
+
     return {
       hero,
       heroItems,
@@ -64,7 +68,10 @@ export class CatalogService {
       collections: collectionsWithItems,
       anime,
       topMovies,
-      topSeries
+      topSeries,
+      totalMoviesCount,
+      totalSeriesCount,
+      totalCatalogCount
     };
   }
 

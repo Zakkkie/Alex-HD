@@ -31,6 +31,11 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
   const [currentFocusId, setCurrentFocusId] = useState<string>('sidebar-home');
   const [activeZone, setActiveZone] = useState<'sidebar' | 'content' | 'modal' | 'player'>('sidebar');
   const nodesMap = useRef<Map<string, FocusableNode>>(new Map());
+  const currentFocusIdRef = useRef<string>(currentFocusId);
+
+  useEffect(() => {
+    currentFocusIdRef.current = currentFocusId;
+  }, [currentFocusId]);
 
   // Register Tizen Media Keys on mount
   useEffect(() => {
@@ -77,7 +82,8 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
 
   // Spatial direction calculation (Geometric center distance + angular penalty)
   const findNextFocusNode = (direction: 'NAV_UP' | 'NAV_DOWN' | 'NAV_LEFT' | 'NAV_RIGHT'): string | null => {
-    const currNode = nodesMap.current.get(currentFocusId);
+    const activeFocusId = currentFocusIdRef.current;
+    const currNode = nodesMap.current.get(activeFocusId);
     if (!currNode) return null;
 
     // Direct override
@@ -96,7 +102,7 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
     let minDistance = Infinity;
 
     nodesMap.current.forEach((node, id) => {
-      if (id === currentFocusId) return;
+      if (id === activeFocusId) return;
       const rect = node.element.getBoundingClientRect();
       const center = {
         x: rect.left + rect.width / 2,
@@ -164,7 +170,7 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
         return;
       }
 
-      const currNode = nodesMap.current.get(currentFocusId);
+      const currNode = nodesMap.current.get(currentFocusIdRef.current);
 
       if (action === 'ACT_ENTER') {
         if (currNode && currNode.onEnter) {
@@ -193,7 +199,7 @@ export const SpatialNavigationProvider: React.FC<{ children: React.ReactNode }> 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentFocusId, setFocus]);
+  }, [setFocus]);
 
   return (
     <SpatialNavigationContext.Provider

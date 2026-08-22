@@ -347,6 +347,9 @@ export interface HomePayload {
   anime?: ContentItem[];
   topMovies?: ContentItem[];
   topSeries?: ContentItem[];
+  totalMoviesCount?: number;
+  totalSeriesCount?: number;
+  totalCatalogCount?: number;
 }
 
 export interface AuthResponse {

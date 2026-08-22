@@ -73,7 +73,9 @@ export const CastCarousel: React.FC<CastCarouselProps> = ({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
     });
-    setTimeout(checkScroll, 300);
+    setTimeout(() => {
+      if (scrollRef.current) checkScroll();
+    }, 300);
   };
 
   const totalPeople = (director && director !== 'Неизвестно' ? 1 : 0) + cast.length;

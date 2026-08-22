@@ -77,7 +77,9 @@ export const StillsCarousel: React.FC<StillsCarouselProps> = ({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth'
     });
-    setTimeout(checkScroll, 300);
+    setTimeout(() => {
+      if (scrollRef.current) checkScroll();
+    }, 300);
   };
 
   if (!stills || stills.length === 0) return null;

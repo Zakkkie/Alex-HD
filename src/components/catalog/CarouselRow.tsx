@@ -6,6 +6,7 @@ interface CarouselRowProps {
   rowIndex: number;
   title: string;
   items: (ContentItem | WatchHistoryItem)[];
+  totalCount?: number;
   onSelect: (item: ContentItem) => void;
   upTarget?: string;
   downTarget?: string;
@@ -18,6 +19,7 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
   rowIndex,
   title,
   items,
+  totalCount,
   onSelect,
   upTarget,
   downTarget,
@@ -52,6 +54,8 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
     });
   };
 
+  const displayCount = totalCount && totalCount > items.length ? totalCount : items.length;
+
   return (
     <div className="mb-8 space-y-3.5">
       <div className="flex items-center justify-between gap-4">
@@ -61,7 +65,7 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
         </h2>
         <div className="flex-1 h-[1px] bg-gradient-to-r from-[#f5f3ef]/20 via-[#f5f3ef]/5 to-transparent hidden sm:block" />
         <span className="font-mono-code text-xs text-[#d4b581] bg-[#d4b581]/10 px-3 py-1 rounded-lg border border-[#d4b581]/25 uppercase tracking-widest hidden md:inline-block font-semibold">
-          {items.length} РЕЛИЗОВ
+          {displayCount} РЕЛИЗОВ
         </span>
       </div>
 

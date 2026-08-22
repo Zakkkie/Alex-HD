@@ -217,13 +217,15 @@ export const Home: React.FC<HomeProps> = ({
       id: 'top-movies',
       rowIndex: 1,
       title: 'Последние новинки кино',
-      items: rowItems['top-movies'] || []
+      items: rowItems['top-movies'] || [],
+      totalCount: data?.totalMoviesCount
     },
     {
       id: 'top-series',
       rowIndex: 2,
       title: 'Топовые новые сериалы',
-      items: rowItems['top-series'] || []
+      items: rowItems['top-series'] || [],
+      totalCount: data?.totalSeriesCount
     },
     {
       id: 'anime',
@@ -241,7 +243,8 @@ export const Home: React.FC<HomeProps> = ({
       id: 'popular',
       rowIndex: 5,
       title: 'Популярное в каталоге',
-      items: rowItems['popular'] || []
+      items: rowItems['popular'] || [],
+      totalCount: data?.totalCatalogCount
     },
     {
       id: 'classics',
@@ -337,6 +340,7 @@ export const Home: React.FC<HomeProps> = ({
               rowIndex={row.rowIndex}
               title={row.title}
               items={row.items}
+              totalCount={row.totalCount}
               onSelect={onSelectContent}
               upTarget={upTarget}
               downTarget={downTarget}
